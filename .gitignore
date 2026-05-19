@@ -1,0 +1,6 @@
+test.ipynb
+CHEMICAL_DB_old.py
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
