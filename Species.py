@@ -37,6 +37,7 @@ class Species:
         if db_entry != {}:
             self.db_entry = db_entry
             self._in_db = True
+
         else: 
             self._in_db = False
             self.db_entry = 'Not found in the database'
@@ -45,8 +46,13 @@ class Species:
         
         self.stoichiometry: Dict[str, float] = {}
         self.charge: int = 0
-        self._infer_from_formula()
+
+        if self.name.lower() != 'electron':
+            self._infer_from_formula()
         
+        else:
+            self.charge: int = +1
+
 
         
         # Internal storage for overridden mass
@@ -66,7 +72,7 @@ class Species:
     def from_dict(cls, dic: dict):
         formula = ''
         name = None
-        for element, stoich in zip(dic.keys(), dic.values()): 
+        for element, stoich in dic.items(): 
 
             if element.lower() != 'charge' and element.lower() != 'name':
                 formula += element + str(stoich)
@@ -84,16 +90,22 @@ class Species:
 
 
     @classmethod
-    def from_name(cls, name: str): 
-        _name = name.lower()
+    def from_name(cls, name: str | list[str]):
 
-        if not _name in cls._DATA.keys():
-            raise ValueError(f'{_name} not found in the dataset.')
+        if isinstance(name, str):
+            _name = name.lower()
 
-        else:
-            if isinstance(cls._DATA[_name], str):
+            if not _name in cls._DATA.keys():
+                raise ValueError(f'{_name} not found in the dataset.')
+            
+            return cls(cls._DATA.get(_name), name=_name)
         
-                return cls(cls._DATA[_name], name=_name)
+
+        elif isinstance(name, list): return [cls.from_name(_name) for _name in name]
+        
+
+        else: raise TypeError(f"'name' argument should be an instance of string (str) or list of strings (list[str])")
+            
 
 
     def _infer_from_formula(self):
@@ -122,6 +134,23 @@ class Species:
 
     def _update_name(self, value): 
         self.name = value
+
+    # ---- Degree of reductance (gamma) ----
+
+    def gamma(self, per_carbon=False): 
+        if not self._made_of_atoms: 
+            raise TypeError("Cannot compute the degree of reductance of species that are not made of known Atoms.")
+
+        DoR = -self.charge
+
+        for el, s in self.stoich.items():
+            DoR += Atom.get(el).v*s
+
+        if per_carbon:
+            DoR /= self.stoich.get('C', 1)
+
+        return DoR
+
 
     # ---- Molar Mass (M) ----
 
@@ -271,7 +300,7 @@ class Species:
         
 
         else: 
-            raise NotImplementedError('Not implemented yet')
+            raise NotImplementedError(f'Species {self.formula} not found in the database. Not implemented yet')
 
 
     def mu(self, activity: Optional[float] = None, T: Optional[float] = 298.15, pH: Optional[float] = 7, method: Optional[str] = 'eQ pH=0'):
@@ -280,3 +309,4 @@ class Species:
     
     def __repr__(self):
         return f"Species(Name={self.name}, Formula={self.formula})"
+    

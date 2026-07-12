@@ -2,14 +2,19 @@ import re
 
 import numpy as np 
 
+
 from pandas import DataFrame
 from ast import literal_eval
 from collections.abc import Iterable
+from numbers import Integral, Real
 
 from .misc import _matrix_parser, _check_coeffs
 
 from typing import List, Dict, Union, Optional
+
 from .Species import Species
+
+__all__ = ["Equation", "ConservationLaws"]
 
 
 class Equation:
@@ -29,6 +34,11 @@ class Equation:
         self.reactants = [s if isinstance(s, Species) else Species(s) for s in reactants]
         self.products = [s if isinstance(s, Species) else Species(s) for s in products]
         
+
+        _dummy_coeff = {s.formula: 1 for s in self.reactants + self.products}
+        self.stoichiometry = ConservationLaws(self, _coeffs = _dummy_coeff)
+
+
         _check_coeffs(known_coefficients, self.reactants, self.products)
 
         # 2. Store user-defined coefficients
@@ -49,6 +59,47 @@ class Equation:
         
         self.result_inference = None
         
+
+    @property
+    def known_coeff(self):
+        """Access or assign known coefficient(s) for species in this equation."""
+        return self.known_coefficients
+
+
+    @known_coeff.setter
+    def known_coeff(self, value):
+        """Set one or more known coefficients and refresh derived equation state."""
+        if isinstance(value, tuple) and len(value) == 2:
+            value = {value[0]: value[1]}
+
+        if not isinstance(value, dict):
+            raise TypeError("known_coefficient must be set with a dict or a (species, coefficient) tuple")
+
+        _check_coeffs(value, self.reactants, self.products)
+
+        if self.balanced_coefficients: 
+            self.default_coefficients = {s: 1.0 for s in self.balanced_coefficients.keys()}
+            self.balanced_coefficients = None
+
+        for species in value.keys():
+            self.default_coefficients.pop(species, None)
+
+        _to_delete = []
+        for s in self.known_coefficients.keys(): 
+            if not s in value.keys(): _to_delete.append(s) 
+
+        for s in _to_delete: 
+            self.known_coefficients.pop(s)
+            self.default_coefficients.update({s: 1.0})
+
+        _check_coeffs(self.default_coefficients, self.reactants, self.products)
+
+        print(f'Warning: Deleting previously kwown coefficient for species {_to_delete}, now set to default value (+/-)1.')
+        del _to_delete
+
+        self.known_coefficients.update(value)
+        self.conservation_laws = ConservationLaws(self)
+
 
     @classmethod
     def from_string(cls, equation_str: str):
@@ -124,7 +175,7 @@ class Equation:
         to_delete = []
         for species, coeff in dict.items():
 
-            if isinstance(coeff, float) or isinstance(coeff, int):
+            if isinstance(coeff, float) or isinstance(coeff, Integral):
 
                 if coeff>0:
                     products.append(species)
@@ -167,6 +218,7 @@ class Equation:
         else: 
             return {**self.default_coefficients, **self.known_coefficients}
         
+
     def element_recovery(self, element, in_percent=True):
 
         if not element in self.conservation_laws.list:
@@ -181,51 +233,23 @@ class Equation:
         return in_product/in_reactant*base
 
 
-    def infer_coeffs(self, known_coeff: Optional[Dict[str, float]] = None, verbose=True):
+    def infer_coeffs(self, known_coeff: Optional[Dict[str, float]] = {}, verbose=True):
         """
         Solves the linear system A * x = b for the unknown coefficients.
         Accepts an optional dictionary of additional known fluxes/coefficients.
         """
 
-        result_inference = {}
-
-        # Erase the previous results
         if self.balanced_coefficients: 
-
             self.default_coefficients = {s: 1.0 for s in self.balanced_coefficients.keys()}
             self.balanced_coefficients = None
 
+        result_inference = {}
 
-        # Update knowns if the user provided additional fluxes
-        if known_coeff:
-
-            _check_coeffs(known_coeff, self.reactants, self.products)
-
-             # Remove these newly defined species from the defaults
-            for species in known_coeff.keys():
-                self.default_coefficients.pop(species, None)
-
-            _to_delete = []
-            for s in self.known_coefficients.keys():
-                
-                if not s in known_coeff.keys():
-                    _to_delete.append(s)
-                    self.default_coefficients[s] = 1.0
-                
-            for s in _to_delete:
-                self.known_coefficients.pop(s)
-
-                if verbose: print(f'Warning: Overriding previously kwown coefficient for species {s}, now set to unknown')
-
-            del _to_delete 
-
-            self.known_coefficients.update(known_coeff)
-            
-            _check_coeffs(self.default_coefficients, self.reactants, self.products)
+        if known_coeff != {}: self.known_coeff = known_coeff
             
 
         # Refresh the conservation laws matrix to reflect the new knowns
-        self.conservation_laws = ConservationLaws(self)
+        # self.conservation_laws = ConservationLaws(self)
             
         
         result_inference['Unknowns coefficients'] = list(self.default_coefficients.keys())
@@ -263,7 +287,7 @@ class Equation:
         # Construct vector RHS vector (the negative sum of the known columns)
         RHS = -np.sum(L_matrix[:, known_indices], axis=1)[[cl.rows_L[key] for key in rows_LHS.keys()]]
 
-        result_inference['RHS'] = RHS
+        result_inference['RHS'] = L_matrix[:, known_indices][[cl.rows_L[key] for key in rows_LHS.keys()], :]
 
         # Check if the matrix is square
         _shape = LHS.shape[0] - LHS.shape[1] 
@@ -285,8 +309,23 @@ class Equation:
             self.conservation_laws = ConservationLaws(self)
 
             result_inference['Status'] = 'Success'
-            # result_inference['Message'] = None if all(sol >= 0) else f'Warning: linear problem yield negative coefficients'
+            result_inference['Message'] = None
             result_inference['Inferred coefficients'] = self.balanced_coefficients
+
+
+            _temp = self.balanced_coefficients.copy()
+            _check_coeffs(_temp, self.reactants, self.products)
+            for key, val in self.balanced_coefficients.items():
+            
+                _sign_mismatch = []
+                if val!=_temp[key]:
+                    _sign_mismatch.append(key)
+
+                if _sign_mismatch!=[]: 
+                    msg = f"Warning! Sign mismatch for species: {[i for i in _sign_mismatch]}."
+                    result_inference['Message'] = msg
+                
+                    if verbose: print(msg)
 
         
         if _shape>0: 
@@ -376,35 +415,130 @@ class Equation:
 
 
 
+    def __mul__(self, scalar):
+        if not isinstance(scalar, Real) or isinstance(scalar, bool):
+            return NotImplemented
+
+        if scalar == 0:
+            raise ValueError("Cannot multiply an equation by zero.")
+
+        flip = scalar < 0
+        new_reactants = list(self.products) if flip else list(self.reactants)
+        new_products = list(self.reactants) if flip else list(self.products)
+
+        if self.balanced_coefficients and self.is_balanced:
+            source_coeffs = self.coefficients
+        else:
+            source_coeffs = self.known_coefficients
+
+        new_known_coefficients = {formula: coeff * scalar for formula, coeff in source_coeffs.items()}
+
+        return Equation(new_reactants, new_products, known_coefficients=new_known_coefficients)
+
+
+    def __rmul__(self, scalar):
+        return self.__mul__(scalar)
+
+
+    def __add__(self, other):
+        if not isinstance(other, Equation):
+            return NotImplemented
+
+        def is_fully_determined(eq):
+            return bool(eq.balanced_coefficients) and eq.is_balanced
+
+        c1 = self.coefficients if is_fully_determined(self) else self.known_coefficients
+        c2 = other.coefficients if is_fully_determined(other) else other.known_coefficients
+
+        species_registry = {s.formula: s for s in self.reactants + self.products + other.reactants + other.products}
+
+        side1 = {s.formula: ('reactant' if s in self.reactants else 'product') for s in self.reactants + self.products}
+        side2 = {s.formula: ('reactant' if s in other.reactants else 'product') for s in other.reactants + other.products}
+
+        new_known_coefficients = {}
+        new_reactants, new_products = [], []
+
+        for formula in species_registry.keys():
+            in1, in2 = formula in c1, formula in c2
+            present1, present2 = formula in side1, formula in side2
+
+            if in1 and in2:
+                net = c1[formula] + c2[formula]
+
+                if np.isclose(net, 0.0, atol=1e-6):
+                    continue
+
+                new_known_coefficients[formula] = net
+                (new_reactants if net < 0 else new_products).append(species_registry[formula])
+                continue
+
+            if present1 and present2 and side1[formula] != side2[formula]:
+                raise ValueError(
+                    f"Cannot combine species '{formula}': it is a substrate in one equation and a product "
+                    f"in the other, but its coefficient is not known in both equations."
+                )
+
+            if in1:
+                new_known_coefficients[formula] = c1[formula]
+                (new_reactants if c1[formula] < 0 else new_products).append(species_registry[formula])
+
+            elif in2:
+                new_known_coefficients[formula] = c2[formula]
+                (new_reactants if c2[formula] < 0 else new_products).append(species_registry[formula])
+
+            else:
+                side = side1.get(formula, side2.get(formula))
+                (new_reactants if side == 'reactant' else new_products).append(species_registry[formula])
+
+        return Equation(new_reactants, new_products, known_coefficients=new_known_coefficients)
+
+
     def __repr__(self):
-        def fmt(s_list):
-            return " + ".join([f"{abs(self.coefficients[s.formula])} {s.formula}" for s in s_list])
+        coefficients = self.coefficients
+        LHS, RHS = "", ""
+
+        for formula, coeff in coefficients.items():
+            if coeff<0:
+                LHS += str(-coeff) + " " + formula + " + "
+
+            else:
+                RHS += str(coeff) + " " + formula + " + "
+
+        return LHS[:-3] + " = " + RHS[:-3]
+
+
+    
+
         
-
-        return f"{fmt(self.reactants)} = {fmt(self.products)}"
-
 
 
 
 class ConservationLaws:
 
-    def __init__(self, eq: Equation): 
+
+    def __init__(self, eq: Equation, _coeffs = None): 
         """
         Construct a nested dictionnary containing the conservation laws of all the element parsed from
         an Equation instance
         """
+        _order_element = ["C", "H", "O", "N", "P", "S", "Mg", "Na", "Li", "Cl", "Mn", "Ca", "K", "Fe"]
+        _order_dict = {element: index for index, element in enumerate(_order_element)}
+
 
         # 1. Identify all unique species and elements
         all_species = eq.reactants + eq.products
         all_elements = set()
         for s in all_species:
             all_elements.update(s.stoich.keys())
+        
+        all_elements = sorted(all_elements, key=lambda x: _order_dict.get(x, len(_order_element)))
+
 
         # 2. Initialize the nested structure
         self.get = {el: {} for el in all_elements}
         self.get['Charge'] = {}
 
-        coeffs = eq.coefficients
+        coeffs = eq.coefficients if _coeffs is None else _coeffs
 
         for element in all_elements:
 
@@ -464,317 +598,7 @@ class ConservationLaws:
     @property
     def rk(self):
         return np.linalg.matrix_rank(self.to_array)
-
-
-
-
-
-class MacrochemEquation(Equation):
     
-    def __init__(self, 
-        substrates: List[Union[str, Species]], 
-        products: List[Union[str, Species]], 
-
-        biomass_stoichiometry: Optional[Dict[str, float]] = None, 
-
-        electron_donor: Optional[str] = None,
-        electron_acceptor: Optional[str] = None,
-        carbon_source: Optional[str] = None,
-
-        yields: Optional[Dict[str, float]] = None,
-        biomass_alias: Optional[str] = 'CH1.8O0.5N0.2'
-    ):
-        
-        if yields is None:
-            yields = {}
-        
-        
-        if biomass_stoichiometry: 
-            _biomass_stoichiometry = {}
-            _biomass_stoichiometry.update({'name': 'biomass'})
-
-            _biomass_elements = ['C', 'H', 'O', 'N', 'P', 'S']
-
-            for element in _biomass_elements: 
-                for key in biomass_stoichiometry: 
-
-                    if element in key: 
-                        _biomass_stoichiometry.update({element: biomass_stoichiometry.get(key)})
-
-            if not 'C' in _biomass_stoichiometry.keys():
-                _biomass_stoichiometry = {'C': 1, **_biomass_stoichiometry}
-
-
-            self.biomass = Species.from_dict(_biomass_stoichiometry)
-
-            products[0] = self.biomass
-
-        else: 
-            if isinstance(products[0], Species): 
-                products[0]._update_name('biomass')
-            else: 
-                products[0] = Species(products[0], name='biomass')
-
-            self.biomass = products[0]
-
-        self.biomass_stoich = self.biomass.stoich
-
-
-        if isinstance(biomass_alias, str): 
-            self._biomass_alias = biomass_alias
-
-        elif biomass_alias is None:
-            self._biomass_alias = self.biomass.formula
-
-
-        super().__init__(reactants = substrates, 
-                         products = products, 
-                         known_coefficients = self._parse_biomass_alias(yields, self._biomass_alias, self.biomass.formula)
-                         )
-
-
-        self.substrates = self.reactants
-
-        self._yields = self.known_coefficients
-
-
-        self._electron_donor = self._validate_species(electron_donor) if electron_donor else None
-        self._electron_acceptor = self._validate_species(electron_acceptor) if electron_acceptor else None
-        self._carbon_source = self._validate_species(carbon_source) if carbon_source else None
-
-
-    @classmethod
-    def from_string(cls, eqn_str: str, **kwargs):
-
-        eqn = Equation.from_string(eqn_str)
-     
-        return cls(substrates=eqn.reactants, products=eqn.products, yields=eqn.known_coefficients, **kwargs)
-    
-
-    @classmethod
-    def from_dict(cls, dict: Dict[str, float], biomass_alias='CH1.8O0.5N0.2', biomass_key=None, **kwargs):
-        
-        if biomass_key is None: biomass_key = biomass_alias
-
-        if not biomass_key in dict.keys():
-            raise ValueError(f"Biomass key '{biomass_key}' not found among the dictionary keys: {list(dict.keys())}")
-
-        _element_biomass = ['C biomass', 'H biomass', 'O biomass', 'N biomass', 'P biomass', 'S biomass']
-        _dict = dict.copy()
-        biomass_stoich = {k: _dict.pop(k) for k in _element_biomass if k in dict.keys()}
-
-        if biomass_stoich=={}:
-            biomass_stoich = None
-
-        eqn = Equation.from_dict({biomass_alias: _dict.pop(biomass_key), **_dict})
-
-        return cls(substrates=eqn.reactants, 
-                   products=eqn.products, 
-                   biomass_stoichiometry=biomass_stoich, 
-                   yields=eqn.known_coefficients, 
-                   biomass_alias=biomass_alias,
-                   **kwargs
-                   )
-    
-    @classmethod
-    def from_parsed_df(cls, df: DataFrame, index: Optional[int] = None, **kwargs):
-
-        if index is None: 
-            return {index: cls.from_parsed_df(df, index) for index in df.index}
-            
-        elif isinstance(index, Iterable):
-            return {i: cls.from_parsed_df(df, i) for i in index}
-        
-        elif isinstance(index, int):
-
-            _necessary_cols = ['Substrates', 'Products', 'Electron donor formula', 'Electron acceptor formula', 'Carbon source formula', 'H biomass', 'O biomass', 'N biomass']
-            if not all([i in df.columns for i in _necessary_cols]):
-                raise ValueError(f"The parsed DataFrame must contain columns: {_necessary_cols}.")
-
-
-            substrates = df.loc[index, 'Substrates'] if isinstance(df.loc[index, 'Substrates'], list) else literal_eval(df.loc[index, 'Substrates']) 
-            products = df.loc[index, 'Products'] if isinstance(df.loc[index, 'Products'], list) else literal_eval(df.loc[index, 'Products']) 
-
-            Ed, Ea, Cs = df.loc[index, 'Electron donor formula'], df.loc[index, 'Electron acceptor formula'], df.loc[index, 'Carbon source formula']
-
-            biomass_stoichiometry = df.loc[index, ['H biomass', 'O biomass', 'N biomass']].rename(index={'H biomass': 'H', 'O biomass': 'O', 'N biomass': 'N'}).to_dict()
-                        
-            return  cls(substrates=substrates, 
-                        products=products, 
-                        biomass_stoichiometry=biomass_stoichiometry,
-                        electron_donor=Ed,
-                        electron_acceptor=Ea,
-                        carbon_source=Cs,
-                        **kwargs
-                        )
-        
-        else: 
-            raise ValueError("'Index' should be either an iterable object or an int. ")
-
-
-    def _validate_species(self, formula: str) -> Species:
-        """
-            Convert a species formula (str) to a Species instance, provided it is 
-            among the substrates/products of the macrochemical equation. 
-        """
-
-        if formula is None: 
-            return formula
-
-        for s in self.reactants + self.products:
-            if s.formula == formula:
-                return s
-            
-        raise ValueError(f"Role Error: {formula} must be one of the reactants: {[r.formula for r in self.reactants]}")
-
-
-    @staticmethod
-    def _use_biomass_alias(dict, biomass_alias, biomass_formula):
-        out = dict.copy()
-        out.update({biomass_alias: dict.get(biomass_formula)})
-        out.pop(biomass_formula, None)
-    
-        return out
-    
-    @staticmethod
-    def _parse_biomass_alias(dict, biomass_alias, biomass_formula):
-
-        if biomass_alias in dict.keys(): 
-            out = dict.copy()
-            out.update({biomass_formula: out.pop(biomass_alias)})
-
-            return out
-    
-        else: 
-
-            return dict
-
-
-    def infer_yields(self, known_coeff: Optional[Dict[str, float]]=None, verbose=True):
-
-        _known_coeff = None
-        if known_coeff:
-            _known_coeff = self._parse_biomass_alias(known_coeff, self._biomass_alias, self.biomass.formula)
-
-        self.infer_coeffs(_known_coeff, verbose=verbose)
-
-
-    
-    def list_species(self, which='all', use_biomass_alias=True): 
-
-        if not which in ['all', 'reactants', 'products']:
-            raise ValueError(f"'which' takes the following values: 'all', 'reactants', 'products'")
-        
-        if which=='all':
-            if use_biomass_alias:
-               return [s.formula if s.formula!=self.biomass.formula else self._biomass_alias for s in self.reactants+self.products]
-            
-            else: 
-                return [s.formula for s in self.reactants+self.products]
-
-        elif which=='products':
-            if use_biomass_alias:
-               return [s.formula if s.formula!=self.biomass.formula else self._biomass_alias for s in self.products]
-            
-            else: 
-                return [s.formula for s in self.products]
-        
-        else: 
-            return [s.formula for s in self.reactants]
-
-    # --- Electron Donor (Ed) ---
-
-    @property
-    def electron_donor(self) -> Optional[Species]:
-        return self._electron_donor
-
-    @electron_donor.setter
-    def electron_donor(self, value: Union[str, Species]):
-        formula = value.formula if isinstance(value, Species) else value
-        self._electron_donor = self._validate_species(formula)
-
-    @property
-    def Ed(self): return self.electron_donor
-
-    @Ed.setter
-    def Ed(self, value): self.electron_donor = value
-
-
-    # --- Electron Acceptor (Ea) ---
-
-    @property
-    def electron_acceptor(self) -> Optional[Species]:
-        return self._electron_acceptor
-
-    @electron_acceptor.setter
-    def electron_acceptor(self, value: Union[str, Species]):
-        formula = value.formula if isinstance(value, Species) else value
-        self._electron_acceptor = self._validate_species(formula)
-
-    @property
-    def Ea(self): return self.electron_acceptor
-
-    @Ed.setter
-    def Ea(self, value): self.electron_acceptor = value
-
-
-    # --- Carbon source (Cs) ---
-
-    @property
-    def carbon_source(self) -> Optional[Species]:
-        return self._carbon_source
-
-    @carbon_source.setter
-    def carbon_source(self, value: Union[str, Species]):
-        formula = value.formula if isinstance(value, Species) else value
-        self._carbon_source = self._validate_species(formula)
-
-    @property
-    def Cs(self): return self.carbon_source
-
-    @Ed.setter
-    def Cs(self, value): self.carbon_source = value
-
-
-    # --- Yields (y) ---
-
-    @property
-    def yields(self) -> Dict[str, np.float64]:
-        return self._use_biomass_alias(self.coefficients, self._biomass_alias, self.biomass.formula)
-    
-    @yields.setter
-    def yields(self, value: Dict[str, float]):
-        """Updates the known coefficients and refreshes conservation laws."""
-       
-        _new_yields = self._parse_biomass_alias(value.copy(), self._biomass_alias, self.biomass.formula)
-        for key in value.keys(): 
-            if not key in self.list_species(): _new_yields.pop(key)
-
-        
-        _check_coeffs(_new_yields, self.reactants, self.products)
-
-        self.known_coefficients.update(_new_yields)
-
-        for s in value.keys():
-            if s in self.default_coefficients.keys(): self.default_coefficients.pop(s)
-
-        # We re-run the conservation law setup to account for new knowns
-        self.conservation_laws = ConservationLaws(self)
-
-    @property
-    def y(self): return self.yields
-
-    @y.setter
-    def y(self, value): self.yields = value
-
-
 
     def __repr__(self):
-        base = super().__repr__()
-
-        Ed = self._electron_donor.formula if self._electron_donor else 'Unknown'
-        Ea = self._electron_acceptor.formula if self._electron_acceptor else 'Unknown'
-        Cs = self._carbon_source.formula if self._carbon_source else 'Unknown'
-
-        return f"{base}" + "\n \n" + f"Electron donor: {Ed}" + " | " + f"Electron acceptor: {Ea}" + " | " + f"Carbon source: {Cs}"
-
+        return DataFrame.__repr__(self.to_pandas)

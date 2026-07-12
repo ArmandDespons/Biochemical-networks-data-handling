@@ -951,8 +951,8 @@ CHEMICAL_DB = {
 
     'sucrose': 'C12H22O11 (sucrose)',
 
-    'C12H22O11 (α-maltose)': {
-        'Name': 'α-maltose',
+    'C12H22O11 (maltose)': {
+        'Name': 'maltose',
         'C': 12,
         'H': 22.0,
         'O': 11.0,
@@ -968,7 +968,7 @@ CHEMICAL_DB = {
         'Molar mass (g/mol)': 342.0,
     },
 
-    'α-maltose': 'C12H22O11 (α-maltose)',
+    'maltose': 'C12H22O11 (maltose)',
 
 
     'Fe+2': {
@@ -987,7 +987,7 @@ CHEMICAL_DB = {
     'Ferrous iron': 'Fe+2',
 
 
-     'Fe+3': {
+    'Fe+3': {
         'Name': 'Iron (III)',
         'Fe':1,
         'Charge': 3,
@@ -999,7 +999,105 @@ CHEMICAL_DB = {
         'Molar mass (g/mol)': 55.845,
     },
 
-    'Iron (III)': 'Fe+3',
-    'Ferric iron': 'Fe+3'
+    'iron (III)': 'Fe+3',
+    'ferric iron': 'Fe+3',
 
+    'C6H15N4O2+1': {
+        'Name': 'Arginine',
+        'C': 6,
+        'H': 15,
+        'O': 2,
+        'N': 4,
+        'S': 0,
+        'Mn': 0,
+        'Charge': 1,
+        'NOS': 0.0,
+        'Phase': 'aq',
+        'Organic': True,
+        'Enthalpy of formation (kJ/mol)': -624.9,
+        'Free-energy of formation (kJ/mol)': {'eQ pH=0': -297.7, 'eQ pH=7.5': 359.4},
+        'Molar mass (g/mol)': 175.21,
+    }, 
+
+    'arginine': 'C6H15N4O2+1',
+
+    'C23H34N7O17P3S': {
+        'Name': 'Acetyl-CoA',
+        'C': 23,
+        'H': 34,
+        'O': 17,
+        'N': 7,
+        'S': 1,
+        'P': 3,
+        'Mn': 0,
+        'Charge': 0,
+        'NOS': 0.0,
+        'Phase': 'aq',
+        'Organic': True,
+        'Enthalpy of formation (kJ/mol)': None,
+        'Free-energy of formation (kJ/mol)': {'eQ pH=0': -3349.4, 'eQ pH=7.5': -1762.2},
+        'Molar mass (g/mol)': 175.21,
+    }, 
+
+    'Acetyl-CoA': 'C23H34N7O17P3S',
+    'C2H3O-S-CoA': 'C23H34N7O17P3S',
+
+   'C21H32N7O16P3S': {
+        'Name': 'Coenzyme A',
+        'C': 21,
+        'H': 32,
+        'O': 16,
+        'N': 7,
+        'S': 1,
+        'P': 3,
+        'Mn': 0,
+        'Charge': 0,
+        'NOS': 0.0,
+        'Phase': 'aq',
+        'Organic': True,
+        'Enthalpy of formation (kJ/mol)': None,
+        'Free-energy of formation (kJ/mol)': {'eQ pH=0': -3213.3, 'eQ pH=7.5': -1709.7},
+        'Molar mass (g/mol)': 175.21,
+    }, 
+    
+    'Coenzyme A': 'C21H32N7O16P3S',
+    'CoA': 'C21H32N7O16P3S',
+
+    'C6H14O6 (sorbitol)': {
+        'Name': 'Sorbitol',
+        'C': 6,
+        'H': 14,
+        'O': 6,
+        'N': 0,
+        'S': 0,
+        'Mn': 0,
+        'Charge': 0,
+        'NOS': 0.0,
+        'Phase': 'aq',
+        'Organic': True,
+        'Enthalpy of formation (kJ/mol)': -1353.7,
+        'Free-energy of formation (kJ/mol)': {'eQ pH=0': -933.8, 'eQ pH=7.5': -334.8},
+        'Molar mass (g/mol)': 182.17,
+    },
+
+    'sorbitol': 'C6H14O6 (sorbitol)',
+
+
+    'e-':  {
+        'Name': 'Electron',
+        'C': 0,
+        'H': 0,
+        'O': 0,
+        'N': 0,
+        'S': 0,
+        'Mn': 0,
+        'Charge': -1,
+        'Phase': None,
+        'Organic': False,
+        'Enthalpy of formation (kJ/mol)': 0,
+        'Free-energy of formation (kJ/mol)': {'eQ pH=0': 0, 'eQ pH=7.5': 0},
+        'Molar mass (g/mol)': 0,
+    },
+
+    'electron': 'e-'
 }   

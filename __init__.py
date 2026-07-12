@@ -1,6 +1,7 @@
-from .Atom import Atom
-from .Species import Species
+from .Atom import *
+from .Species import *
 from .Equation import *
+from .MacrochemicalEquation import *
 
 # This controls what is exported when someone uses 'from core import *'
 __all__ = [

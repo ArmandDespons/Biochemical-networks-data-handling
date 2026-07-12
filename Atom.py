@@ -5,11 +5,11 @@ from typing import Dict, Optional
 class Atom:
     formula: str
     name: str
-    molar_mass: Optional[float] = None
-    atomic_number: Optional[int] = None
-    electronegativity: Optional[float] = None
-    valence_electrons: Optional[int] = None
-
+    molar_mass: float
+    atomic_number: int
+    electronegativity: float
+    valence_electrons: int
+    reference_valence_electrons: int
 
     _REGISTRY: Dict[str, 'Atom'] = None
 
@@ -33,33 +33,33 @@ class Atom:
         cls._initializing = True
         cls._REGISTRY = {}
         
-        # Format: (Formula, Name, Mass, Atomic number, electronegativity, Valence e-)
+        # Format: (Formula, Name, Mass, Atomic number, Electronegativity, Valence e-, Reference valence e-)
         atoms_data = [
-            ("H",  "Hydrogen",   1.008,  1,  2.20, 1),
-            ("C",  "Carbon",    12.011,  6,  2.55, 4),
-            ("O",  "Oxygen",    15.999,  8,  3.44, 6),
-            ("N",  "Nitrogen",  14.007,  7,  3.04, 5),
-            ("P",  "Phosphorus",30.974, 15,  2.19, 5),
-            ("S",  "Sulfur",    32.06,  16,  2.58, 6),
-            ("Mg", "Magnesium", 24.305, 12,  1.31, 2),
-            ("Na", "Sodium",    22.990, 11,  0.93, 1),
-            ("Li", "Lithium",    6.94,   3,  0.98, 1),  
-            ("Cl", "Chlorine",  35.45,  17,  3.16, 7), 
-            ("Mn", "Manganese", 54.938, 25,  1.55, 7),
-            ("Ca", "Calcium",   40.078, 20,  1.00, 2),
-            ("K",  "Potassium", 39.098, 19,  0.82, 1),
-            ("Fe", "Iron",      55.845, 26,  1.83, 8)
+            ("H",  "Hydrogen",   1.008,  1,  2.20, 1, 0),
+            ("C",  "Carbon",    12.011,  6,  2.55, 4, 0),
+            ("O",  "Oxygen",    15.999,  8,  3.44, 6, 8),
+            ("N",  "Nitrogen",  14.007,  7,  3.04, 5, 8),
+            ("P",  "Phosphorus",30.974, 15,  2.19, 5, 0),
+            ("S",  "Sulfur",    32.06,  16,  2.58, 6, 0),
+            ("Mg", "Magnesium", 24.305, 12,  1.31, 2, 0),
+            ("Na", "Sodium",    22.990, 11,  0.93, 1, 0),
+            ("Li", "Lithium",    6.94,   3,  0.98, 1, 0),
+            ("Cl", "Chlorine",  35.45,  17,  3.16, 7, 8),
+            ("Mn", "Manganese", 54.938, 25,  1.55, 7, 0),
+            ("Ca", "Calcium",   40.078, 20,  1.00, 2, 0),
+            ("K",  "Potassium", 39.098, 19,  0.82, 1, 0),
+            ("Fe", "Iron",      55.845, 26,  1.83, 8, 5),
         ]
 
         cls._REGISTRY.update({
-            symbol: cls(symbol, name, mass, z, en, valence) 
-            for symbol, name, mass, z, en, valence in atoms_data
+            symbol: cls(symbol, name, mass, z, en, valence, ref_valence) 
+            for symbol, name, mass, z, en, valence, ref_valence in atoms_data
         })
 
         # Add lowercase names to registry for flexible lookup
         cls._REGISTRY.update({
             name.lower(): cls._REGISTRY[symbol] 
-            for symbol, name, mass, z, en, valence in atoms_data
+            for symbol, name, mass, z, en, valence, ref_valence in atoms_data
         })
         
         cls._initializing = False
@@ -87,20 +87,27 @@ class Atom:
         return result
     
 
+
+    @property
+    def v(self) -> float:
+        """Available valence electron"""
+
+        return self.valence_electrons - self.reference_valence_electrons
+
     # --- Shorthand Aliases ---
     @property
     def M(self) -> float:
-        """Alias for molar_mass."""
+        """Molar mass."""
         return self.molar_mass
 
     @property
     def Z(self) -> int:
-        """Alias for atomic_number."""
+        """Atomic number."""
         return self.atomic_number
 
     @property
     def chi(self) -> Optional[float]:
-        """Alias for electronegativity (Pauling scale)."""
+        """Electronegativity (Pauling scale)."""
         return self.electronegativity
     
 
