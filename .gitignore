@@ -1,6 +1,6 @@
-test.ipynb
-CHEMICAL_DB_old.py
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+Equation_old.py
+MacrochemicalEquation_old.py

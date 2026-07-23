@@ -1,104 +1,116 @@
 import re
 
-import numpy as np 
+import numpy as np
 
-
-from pandas import DataFrame
-from ast import literal_eval
-from collections.abc import Iterable
-from numbers import Integral, Real
-
-from .misc import _matrix_parser, _check_coeffs
-
-from typing import List, Dict, Union, Optional
+from numbers import Real
+from typing import Dict, List, Optional, Union
 
 from .Species import Species
+from .Complex import Complex
 
-__all__ = ["Equation", "ConservationLaws"]
+
+__all__ = ["Equation"]
 
 
 class Equation:
+    """
+    A chemical equation: a `reactants` complex balanced against a `products`
+    complex, each species carrying a signed stoichiometric coefficient
+    (negative for reactants, positive for products).
+
+    A coefficient is either known (set explicitly — via `known_coefficients`
+    at construction, `update_coefficients`, or the `coefficients`/`coeff`
+    setter) or default (an unset placeholder of magnitude 1); `coefficients`/
+    `coeff` merge the two, preferring `balanced_coefficients` once the
+    equation has been solved. Construct via `__init__` (species lists, e.g.
+    `Equation(['A', 'B'], ['AB'])`), `from_string` ("2 A + 2 B = 2 AB"), or
+    `from_dict` ({species: signed coefficient, or a '+'/'-' sentinel for an
+    unknown one}).
+
+    `element_conservation` (an `ElementalConservation`) is rebuilt from the
+    current coefficients on every change; `is_balanced` and `element_recovery`
+    read off of it. `infer_coeff` solves for an independent set of species'
+    coefficients from that conservation matrix — correcting any reactant/
+    product role mismatch it finds along the way — and reports what it did in
+    `result_inference`; `clear` undoes it.
+
+    Supports `*` (either side) to scale by a nonzero scalar (negative flips
+    reactants/products) and `+`/`-` to combine two equations; see each
+    operator's docstring for the exact rules.
+    """
 
     def __init__(
-        self, 
-        reactants: List[Union[str, Species]], 
-        products: List[Union[str, Species]], 
-        known_coefficients: Optional[Dict[str, float]] = None
+        self,
+        reactants: List[Union[str, Species]],
+        products: List[Union[str, Species]],
+        known_coefficients: Optional[Dict[Union[str, Species], float]] = None
     ):
-        
+
         if known_coefficients is None:
             known_coefficients = {}
 
+        # Bare complexes first (every species at its default coefficient), so that
+        # `_resolve_coeff` can match each known-coefficient key against the actual
+        # resolved species of each side.
+        self.reactants = Complex(reactants, default_coeff=-1)
+        self.products = Complex(products, default_coeff=1)
 
-        # 1. Convert to Species objects
-        self.reactants = [s if isinstance(s, Species) else Species(s) for s in reactants]
-        self.products = [s if isinstance(s, Species) else Species(s) for s in products]
-        
+        overlap = set(self.reactants.formula) & set(self.products.formula)
 
-        _dummy_coeff = {s.formula: 1 for s in self.reactants + self.products}
-        self.stoichiometry = ConservationLaws(self, _coeffs = _dummy_coeff)
+        if overlap:
+            raise NotImplementedError(
+                f"Species present in both reactants and products are not yet supported: {sorted(overlap)}"
+            )
 
+        reactant_known, product_known = self._resolve_coeff(known_coefficients)
 
-        _check_coeffs(known_coefficients, self.reactants, self.products)
-
-        # 2. Store user-defined coefficients
-        self.known_coefficients = known_coefficients
-        
-
-        # 3. Store defaults coefficients (1.0) for anything not explicitly defined
-        self.default_coefficients = {}
-        for s in self.reactants + self.products:
-            if s.formula not in self.known_coefficients:
-                self.default_coefficients[s.formula] = -1.0 if s in self.reactants else 1.0
-
-        self.balanced_coefficients = None 
-        self.conservation_laws = ConservationLaws(self)
-        
-        if self.is_balanced:
-            self.balanced_coefficients = self.coefficients
-        
-        self.result_inference = None
-        
-
-    @property
-    def known_coeff(self):
-        """Access or assign known coefficient(s) for species in this equation."""
-        return self.known_coefficients
+        self.reactants = Complex(self.reactants.species, coefficients=reactant_known, default_coeff=-1)
+        self.products = Complex(self.products.species, coefficients=product_known, default_coeff=1)
 
 
-    @known_coeff.setter
-    def known_coeff(self, value):
-        """Set one or more known coefficients and refresh derived equation state."""
-        if isinstance(value, tuple) and len(value) == 2:
-            value = {value[0]: value[1]}
+        from .ElementalConservation import ElementalConservation
+        self.element_conservation = ElementalConservation(self)
 
-        if not isinstance(value, dict):
-            raise TypeError("known_coefficient must be set with a dict or a (species, coefficient) tuple")
+        self.balanced_coefficients = self._default_coefficients.copy() if self.is_balanced else None
 
-        _check_coeffs(value, self.reactants, self.products)
+        self._overriden_complexes = False
+        self._last_independent_set = set()
 
-        if self.balanced_coefficients: 
-            self.default_coefficients = {s: 1.0 for s in self.balanced_coefficients.keys()}
-            self.balanced_coefficients = None
+        self.pH = 7
+        self.T = 298.15
+        self.activity = None
 
-        for species in value.keys():
-            self.default_coefficients.pop(species, None)
 
-        _to_delete = []
-        for s in self.known_coefficients.keys(): 
-            if not s in value.keys(): _to_delete.append(s) 
+    def _resolve_coeff(self, known_coefficients: Dict[Union[str, Species], float]):
+        """Split a combined {species: coefficient} dict between reactants and products.
 
-        for s in _to_delete: 
-            self.known_coefficients.pop(s)
-            self.default_coefficients.update({s: 1.0})
+        Each key (formula, Species instance, name, or alias) is matched against
+        whichever side it belongs to; the resolved coefficient's sign is then
+        forced to the conventional one for that side (negative for reactants,
+        positive for products) regardless of the sign the caller used.
+        """
 
-        _check_coeffs(self.default_coefficients, self.reactants, self.products)
+        reactant_known, product_known = {}, {}
 
-        print(f'Warning: Deleting previously kwown coefficient for species {_to_delete}, now set to default value (+/-)1.')
-        del _to_delete
+        for key, value in known_coefficients.items():
 
-        self.known_coefficients.update(value)
-        self.conservation_laws = ConservationLaws(self)
+            try:
+                s = self.reactants._resolve_species(key)
+                reactant_known[s.formula] = -abs(value)
+                continue
+            except ValueError:
+                pass
+
+            try:
+                s = self.products._resolve_species(key)
+                product_known[s.formula] = abs(value)
+                continue
+            except ValueError:
+                pass
+
+            raise ValueError(f"'{key}' does not match the formula, name, or alias of any species in the reactants or products.")
+
+        return reactant_known, product_known
 
 
     @classmethod
@@ -110,10 +122,10 @@ class Equation:
             - Reactants and products must be spearated by '='
             - Differents species must be separated with ' + ' with spaces
             - Stoichiometric coefficients are optional (set by default to 1)
-        
+
             [Coeffs1] Reactant1 + [Coeffs2] Reactant1 + ... = [Coeffs3] Product1 + [Coeffs4] Product2 + ...
 
-        Examples: 
+        Examples:
 
             NaCl = Na+ + Cl-
 
@@ -124,19 +136,19 @@ class Equation:
 
         if "=" not in equation_str:
             raise ValueError("Equation must contain '='.")
-        
+
         left_side, right_side = equation_str.split("=")
 
         def parse_side(side_str: str):
             species_list = []
             known_coeffs = {}
-            
-            # Split by '+' only when it is surrounded by spaces 
+
+            # Split by '+' only when it is surrounded by spaces
             items = [item.strip() for item in re.split(r'\s+\+\s+', side_str.strip())]
-            
+
             for item in items:
                 if not item: continue
-                
+
                 # Regex strng parsing:
                 # ^([\d\.]+)?    -> Optional leading coefficient
                 # \s* -> Optional space
@@ -145,295 +157,479 @@ class Equation:
                 #  (?:[+-]\d*)?  -> Optional charge at the very end (+1, -, +)
                 # )
                 match = re.match(r'^([\d\.]+)?\s*([A-Za-z0-9\.]+(?:[+-]\d*)?)$', item)
-                
+
                 if match:
                     coeff_str = match.group(1)
                     formula = match.group(2)
-                    
+
                     obj = Species(formula)
                     species_list.append(obj)
-                    
+
                     if coeff_str:
                         known_coeffs[formula] = float(coeff_str)
                 else:
-                    # Fallback for single ions like "H+" if the regex is too strict
+                    # Fallback for single ions like "H+" if the regex is too strictDict[Union[str, Species]
                     obj = Species(item)
                     species_list.append(obj)
-            
+
             return species_list, known_coeffs
 
         reac_objs, reac_known = parse_side(left_side)
         prod_objs, prod_known = parse_side(right_side)
-        
+
         return cls(reac_objs, prod_objs, {**reac_known, **prod_known})
 
 
     @classmethod
-    def from_dict(cls, dict: Dict[str, float] | Dict[Species, float]):
+    def from_dict(cls, coefficients: Dict[Union[str, Species], float]):
+        """
+        Initialize an Equation instance from a dict mapping species (formula, Species
+        instance, name, or alias) to either a known coefficient (a signed number,
+        the sign is only used to assign the side, not its final value) or a bare
+        '+'/'-' sentinel for a product/reactant whose coefficient is left unknown.
+        """
 
-        reactants, products = [], []
-        to_delete = []
-        for species, coeff in dict.items():
+        coefficients = dict(coefficients)
 
-            if isinstance(coeff, float) or isinstance(coeff, Integral):
+        reactants, products, to_delete = [], [], []
 
-                if coeff>0:
-                    products.append(species)
+        for species, coeff in coefficients.items():
 
-                elif coeff<0: 
-                    reactants.append(species)
+            if isinstance(coeff, Real) and not isinstance(coeff, bool):
 
-                elif np.isnan(coeff): 
+                if np.isnan(coeff):
                     to_delete.append(species)
 
-            elif coeff=='-':
+                elif coeff > 0:
+                    products.append(species)
+
+                elif coeff < 0:
+                    reactants.append(species)
+
+            elif coeff == '-':
                 reactants.append(species)
                 to_delete.append(species)
 
-            elif coeff=='+':
+            elif coeff == '+':
                 products.append(species)
                 to_delete.append(species)
 
-            else: 
-                raise ValueError(f"Unauthorized value {coeff}. Only integers or floats are allowed for kwown coefficients or '+'/'-' for products/reactants with unknown coefficients")
+            else:
+                raise ValueError(
+                    f"Unauthorized value {coeff}. Only numbers are allowed for known coefficients, "
+                    "or '+'/'-' for products/reactants with an unknown coefficient."
+                )
 
-        for species in to_delete: dict.pop(species)
+        for species in to_delete:
+            coefficients.pop(species)
 
-        return cls(reactants, products, known_coefficients=dict)
+        return cls(reactants, products, known_coefficients=coefficients)
+    
 
+    @property
+    def all_species(self): 
 
+        return self.reactants + self.products
 
     @property
     def is_balanced(self):
-        return self.conservation_laws.is_balanced
+
+        return bool( np.allclose(np.sum(self.element_conservation.matrix, axis=1), 0.0) )
     
+
+    def element_recovery(self, element: str, in_percent: bool = True):
+
+        if not element in self.element_conservation.elements:
+            raise ValueError(f"Element {element} not a valid element {self.element_conservation.elements}.")
+        
+        base = 100 if in_percent else 1
+        el = self.element_conservation.matrix[self.element_conservation.rows[element], :]
+
+        in_reactant = - el[el < 0].sum()
+        in_product = el[el > 0].sum()
+        
+        return float( in_product / in_reactant * base )
+
+
+    # ----- Thermodynamics (pH, T, activity) -----
 
     @property
-    def coefficients(self) -> Dict[str, float]:
-        """Combines all coefficient sources for calculations."""
+    def pH(self):
+        return self._pH
 
-        if self.balanced_coefficients:
-            return {**self.balanced_coefficients, **self.known_coefficients}
+    @pH.setter
+    def pH(self, value: float):
+        self._pH = float(value)
 
-        else: 
-            return {**self.default_coefficients, **self.known_coefficients}
-        
+    @property
+    def T(self):
+        return self._T
 
-    def element_recovery(self, element, in_percent=True):
+    @T.setter
+    def T(self, value: float):
+        self._T = float(value)
 
-        if not element in self.conservation_laws.list:
-            raise ValueError(f'{element} is not listed as an element.')
-        
-        
-        in_reactant = -np.fromiter((self.conservation_laws.get[element][s.formula] for s in self.reactants), dtype=np.float64).sum()
-        in_product = np.fromiter((self.conservation_laws.get[element][s.formula] for s in self.products), dtype=np.float64).sum()
+    @property
+    def activity(self):
+        return self._activity
 
-        base = 100 if in_percent else 1
-        
-        return in_product/in_reactant*base
-
-
-    def infer_coeffs(self, known_coeff: Optional[Dict[str, float]] = {}, verbose=True):
+    @activity.setter
+    def activity(self, value: Optional[Union[float, Dict[Union[str, Species], float]]]):
         """
-        Solves the linear system A * x = b for the unknown coefficients.
-        Accepts an optional dictionary of additional known fluxes/coefficients.
+        None: `chemical_potential`'s own phase-based default for every species.
+        A single float: applied to every species. A {species: activity} dict
+        (keys resolved to formulas): applied per species, mixing with the
+        phase-based default for any species left unmentioned.
         """
 
-        if self.balanced_coefficients: 
-            self.default_coefficients = {s: 1.0 for s in self.balanced_coefficients.keys()}
-            self.balanced_coefficients = None
+        if value is None:
+            self._activity = None
 
-        result_inference = {}
+        elif isinstance(value, dict):
+            self._activity = {self.all_species._resolve_species(k).formula: v for k, v in value.items()}
 
-        if known_coeff != {}: self.known_coeff = known_coeff
-            
+        elif isinstance(value, Real) and not isinstance(value, bool):
+            self._activity = float(value)
 
-        # Refresh the conservation laws matrix to reflect the new knowns
-        # self.conservation_laws = ConservationLaws(self)
-            
+        else:
+            raise TypeError(
+                f"'activity' must be a float, a dict of {{species: activity}}, or None, got {type(value).__name__}."
+            )
+
+
+    def DrH(self, _warn: bool = True):
+        """Standard reaction enthalpy: sum of each species' signed coefficient times its `standard_enthaply`."""
+
+        if _warn and not self.is_balanced:
+            print(f"Warnings: equation '{self}' is not balanced; DrH may not be physically meaningful.")
+
+        coeffs = self.coefficients
+
+        return sum(coeffs[s.formula] * s.standard_enthaply for s in self.all_species.species)
+
+
+    def DrG(self, method: str = 'eQ pH=0', _warn: bool = True):
+        """
+        Reaction Gibbs free energy: sum of each species' signed coefficient
+        times its `chemical_potential`, evaluated at `self.T`, `self.pH`, and
+        `self.activity`.
+        """
+
+        if _warn and not self.is_balanced:
+            print(f"Warnings: equation '{self}' is not balanced; DrG may not be physically meaningful.")
+
+        coeffs = self.coefficients
+
+        return sum(
+            coeffs[s.formula] * s.chemical_potential(activity=self.activity, T=self.T, pH=self.pH, method=method)
+            for s in self.all_species.species
+        )
+
+
+    def DrS(self, method: str = 'eQ pH=0'):
+
+        if not self.is_balanced:
+            print(f"Warnings: equation '{self}' is not balanced; DrS may not be physically meaningful.")
+
+        return ( self.DrH(_warn=False) - self.DrG(method=method, _warn=False) ) / self.T
+
+
+    # ----- Coefficients properties/setter -----
+
+    @property
+    def _known_coefficients(self): 
         
-        result_inference['Unknowns coefficients'] = list(self.default_coefficients.keys())
-        result_inference['Knowns coefficients'] = self.known_coefficients
-
-        cl = self.conservation_laws
-        known_species = list(self.known_coefficients.keys())
-        unknown_species = list(self.default_coefficients.keys())
-
-        # Get column indices for knowns and unknowns
-        known_indices = [cl.species_to_index[s] for s in known_species]
-        unknown_indices = [cl.species_to_index[s] for s in unknown_species]
-
-        L_matrix = cl.L
-
-        if 'Charge' in cl.rows_L.keys():
-            L_matrix[:-1, unknown_indices] = np.abs(L_matrix[:-1, unknown_indices])
-
-            for r in self.reactants:
-
-                if r.formula in unknown_species and r.charge!=0: L_matrix[-1, cl.species_to_index[r.formula]] *= -1
-
-        else: 
-            L_matrix[:, unknown_indices] = np.abs(L_matrix[:, unknown_indices])
-
-        
-        # Construct the LHS matrix by using _matrix_parser that return the row-independent L_matrix whose columns associated 
-        # with the known coefficients have been removed
-        LHS, rows_LHS = _matrix_parser(L_matrix[:, unknown_indices], cl.rows_L)
-
-
-        result_inference['LHS'] = LHS
-        result_inference['Rows LHS/RHS'] = rows_LHS
-
-        # Construct vector RHS vector (the negative sum of the known columns)
-        RHS = -np.sum(L_matrix[:, known_indices], axis=1)[[cl.rows_L[key] for key in rows_LHS.keys()]]
-
-        result_inference['RHS'] = L_matrix[:, known_indices][[cl.rows_L[key] for key in rows_LHS.keys()], :]
-
-        # Check if the matrix is square
-        _shape = LHS.shape[0] - LHS.shape[1] 
-        
-
-        if _shape<0: 
-            
-            if verbose: print('Unable to infer coefficients: Under-determined system')
-
-            result_inference['Status'] = 'Failed'
-            result_inference['Message'] = f'Under-determined system: not enough known coefficients'
-            result_inference['Inferred coefficients'] = None
-
-        if _shape==0:
-
-            sol = np.linalg.solve(LHS, RHS)
-
-            self.balanced_coefficients = dict(zip(self.default_coefficients.keys(), sol))
-            self.conservation_laws = ConservationLaws(self)
-
-            result_inference['Status'] = 'Success'
-            result_inference['Message'] = None
-            result_inference['Inferred coefficients'] = self.balanced_coefficients
-
-
-            _temp = self.balanced_coefficients.copy()
-            _check_coeffs(_temp, self.reactants, self.products)
-            for key, val in self.balanced_coefficients.items():
-            
-                _sign_mismatch = []
-                if val!=_temp[key]:
-                    _sign_mismatch.append(key)
-
-                if _sign_mismatch!=[]: 
-                    msg = f"Warning! Sign mismatch for species: {[i for i in _sign_mismatch]}."
-                    result_inference['Message'] = msg
-                
-                    if verbose: print(msg)
-
-        
-        if _shape>0: 
-
-            if verbose: print('Unable to infer coefficients')
-
-            result_inference['Status'] = 'Failed'
-            result_inference['Inferred coefficients'] = None
-
-
-        self.result_inference = result_inference
-
-
-    def reset_coeffs(self, which='inferred'):
-        if not which in ['inferred', 'all']: 
-            raise ValueError("'which' should be either 'inferred' to remove inferred coeffcients or 'all' to set all coefficients to their default values (+/- 1)") 
-
-        if which=='inferred':
-
-            if not self.result_inference is None:  
-                _new_default = {s: 1 for s in self.result_inference['Inferred coefficients'].keys()}
-
-        if which=='all': 
+        return self.all_species._known_coefficients
     
-            _new_default = {s.formula: 1 for s in self.reactants+self.products}
+    @property
+    def _default_coefficients(self):
 
-            self.known_coefficients = {}
+        return self.all_species._default_coefficients
+
+
+    def update_coefficients(self, new_coeff: Dict[Union[str, Species], float], verbose: bool = True, _clear: bool = True):
+        """
+        Replace the known coefficients with `new_coeff` (see `_resolve_coeff`: the
+        caller's sign is ignored and forced to each species' conventional role —
+        negative for reactants, positive for products).
+
+        Species previously in `_known_coefficients` but absent from `new_coeff`
+        fall back to their default coefficient; if `verbose`, report which ones.
+
+        Resets `balanced_coefficients` to None and rebuilds `element_conservation`.
+        """
+
+        if _clear: self.clear()
+
+        reactant_known, product_known = self._resolve_coeff(new_coeff)
+
+        reverted = set(self._known_coefficients) - set(reactant_known) - set(product_known)
+
+        self.reactants._update(reactant_known)
+        self.products._update(product_known)
+
+        if verbose and reverted:
+            print(f"Coefficients of species {sorted(reverted)} erased and set with default coefficients +/- 1")
 
         self.balanced_coefficients = None
 
-        _check_coeffs(_new_default, self.reactants, self.products)
-        self.default_coefficients = _new_default
-
-        self.conservation_laws = ConservationLaws(self)
+        from .ElementalConservation import ElementalConservation
+        self.element_conservation = ElementalConservation(self)
 
 
-    def list_species(self, which='all'): 
+    @property
+    def coefficients(self) -> Dict[str, float]:
+        """
+        All species coefficients, keyed by formula.
 
-        if not which in ['all', 'reactants', 'products']:
-            raise ValueError(f"'which' takes the following values: 'all', 'reactants', 'products'")
-        
-        if which=='all':
-            return [s.formula for s in self.reactants+self.products]
-        
-        elif which=='reactants':
-            return [s.formula for s in self.reactants]
-        
-        else: 
-            return [s.formula for s in self.products]
+        Once the equation has been balanced, `balanced_coefficients` is merged
+        with `known_coefficients` (the latter taking precedence); otherwise
+        falls back to `default_coefficients`.
+        """
 
+        if self.balanced_coefficients:
+            return {**self.balanced_coefficients, **self._known_coefficients}
 
-    # ---- Gibbs free-energy difference of the reaction (DrG) ----
+        return {**self._default_coefficients, **self._known_coefficients}
 
-    def gibbs_fe_diff(self, 
-                      activity: Optional[Dict[str, float]] = None, 
-                      T: Optional[float] = 298.15, 
-                      pH: Optional[float] = 7,
-                      method = 'eQ pH=0', 
-                      verbose = True
-                      ): 
-        
-        if not self.is_balanced and verbose: 
-            print('Warning: Computing the Gibbs free-energy difference for unbalanced equation.')
+    @coefficients.setter
+    def coefficients(self, new_coeff: Dict[Union[str, Species], float]):
+        self.update_coefficients(new_coeff)
+
+    @property
+    def coeff(self):
+        return self.coefficients
+
+    @coeff.setter
+    def coeff(self, new_coeff: Dict[Union[str, Species], float]):
+        self.update_coefficients(new_coeff)
+
+    # ----- Infer missing coefficents ----
+
+    def infer_coeff(
+            self,
+            known_coeff: Optional[Dict[Union[Species, str], float]] = None,
+            independent_set: List[Union[str, Species]] = None,
+            include: Optional[List[Union[str, Species]]] = None,
+            exclude: Optional[List[Union[str, Species]]] = None,
+            strict_include: bool = False,
+            strict_exclude: bool = False,
+            verbose: Optional[bool] = True
+            ):
+        """
+        Solve for the coefficients of the *independent set* — the species whose
+        coefficients get computed — via `LHS @ x = RHS` (`ElementalConservation
+        ._linear_sys`, `np.linalg.solve`), then store the full result in
+        `self.balanced_coefficients`.
+
+        `independent_set` is used as-is if given (`include`/`exclude`/`strict_*`
+        are then ignored). Otherwise it's the first result of `get_independent_sets`
+        (`include`, `exclude` plus the species named in `known_coeff` — or, if
+        that isn't given, in `_known_coefficients` — `strict_include`, `strict_exclude`).
+
+        Every other species becomes known: `known_coeff`'s value where given,
+        else its current effective coefficient. A species whose inferred sign
+        contradicts its assumed reactant/product role is moved to the correct
+        complex instead (`_resolve_complex`).
+
+        Side effects: `self._previous_coefficients` is always set; on a role
+        swap, `self._overriden_complexes` and `self._previous_reactants`/
+        `_previous_products` are set. `self.result_inference` (success/failure
+        details) is always set, and errors are re-raised after being recorded there.
+
+        Raises if there's no spare species beyond the elemental rank to anchor
+        the solve (every species would be needed just to reach full rank).
+        """
+
+        result = {
+            'success': False,
+            'independent_set': None,
+            'known_set': None,
+            'known_coeffs': None,
+            'inferred_coeffs': None,
+            'sign_mismatch': None,
+            'message': None,
+        }
+
+        try:
             
-        return sum([self.coefficients.get(species.formula)*species.mu(activity=activity, T=T, pH=pH, method=method) for species in self.reactants+self.products])
+            self.update_coefficients(self._known_coefficients, _clear=True) 
+
+            n_species = len(self.element_conservation.cols)
+            rk = self.element_conservation.rk
+
+            if n_species <= rk:
+                raise ValueError(
+                    f"This equation has {n_species} species but its elemental matrix already has rank "
+                    f"{rk}: every species is needed just to reach full rank, so the only solution is "
+                    "the trivial all-zero one — there is no species left to act as a known anchor."
+                )
+
+            all_species = self.all_species
+
+            coeff_source = known_coeff if known_coeff is not None else self._known_coefficients
+            coeff_source = {all_species._resolve_species(k).formula: v for k, v in coeff_source.items()}
+
+            if independent_set is None:
+                include_formulas = {all_species._resolve_species(s).formula for s in (include or [])}
+
+                # A species named in `include` should win over it also being in
+                # `coeff_source` (known, so auto-excluded by default) — otherwise
+                # the two lists would contradict each other for no reason the
+                # caller asked for.
+                auto_exclude = [f for f in coeff_source if f not in include_formulas]
+
+                sets = self.element_conservation.get_independent_sets(
+                    include=include,
+                    exclude=list(exclude or []) + auto_exclude,
+                    strict_include=strict_include,
+                    strict_exclude=strict_exclude
+                )
+
+                if not sets:
+                    raise ValueError("No invertible set of species could be found to infer coefficients from.")
+
+                independent_set = sets[0]
+
+            else:
+                independent_set = [all_species._resolve_species(s).formula for s in independent_set]
+
+            result['independent_set'] = list(independent_set)
+
+            overridden = set(independent_set) & set(coeff_source)
+            if verbose and overridden:
+                print(
+                    f"Species {sorted(overridden)} have a known coefficient but are part of the "
+                    "independent set: treated as unknowns to infer instead."
+                )
+
+            current = self.coefficients
+            new_known = {f: coeff_source.get(f, current[f]) for f in current if f not in independent_set}
+
+            result['known_set'] = list(new_known.keys())
+            result['known_coeffs'] = dict(new_known)
+
+            self._previous_coefficients = dict(current)
+
+            self.update_coefficients(new_known, verbose=False, _clear=False)
+
+            LHS, RHS = self.element_conservation._linear_sys(independent_set)
+            x = np.linalg.solve(LHS, RHS)
+            inferred = dict(zip(independent_set, x))
+
+            mismatched = self._resolve_complex(inferred, verbose=verbose)
+            result['sign_mismatch'] = sorted(mismatched) if mismatched else None
+
+            solved_magnitude = {f: abs(v) for f, v in inferred.items()}
+
+            self.update_coefficients({**new_known, **solved_magnitude}, verbose=False, _clear=False)
+
+            self.balanced_coefficients = dict(self._known_coefficients)
+
+            result['inferred_coeffs'] = {f: self._known_coefficients[f] for f in independent_set}
+            result['success'] = True
+
+        except Exception as e:
+            result['message'] = str(e)
+            raise
+
+        finally:
+            self.result_inference = ResultDict(result)
 
 
-    def DrG(self, activity: Optional[Dict[str, float]] = None, T: Optional[float] = 298.15, pH: Optional[float] = 7, method = 'eQ pH=0', verbose=True): 
+    def _resolve_complex(self, coeff: Dict[str, float], verbose: bool = True):
+        """
+        Check `coeff` (a {formula: signed value} dict, e.g. from solving the
+        linear system) for species whose sign doesn't match their current
+        reactant/product role, and move any such species to the other complex.
 
-        return self.gibbs_fe_diff(activity=activity, T=T, pH=pH, method=method, verbose=verbose)
+        The pre-move `reactants`/`products` are saved to `self._previous_reactants`/
+        `self._previous_products` only the first time this happens (when
+        `self._overriden_complexes` is still False) — once set, they keep the
+        complexes as they were at instance creation instead of being overwritten
+        by an intermediate, already-moved state from a prior call.
+        """
+
+        reactant_formulas = set(self.reactants.formula)
+
+        mismatched = [
+            f for f, v in coeff.items()
+            if (f in reactant_formulas and v > 0) or (f not in reactant_formulas and v < 0)
+        ]
+
+        if not mismatched:
+            return mismatched
+
+        if verbose:
+            print(
+                f"Sign mismatch for species {sorted(mismatched)}: the inferred coefficient has the "
+                "opposite sign expected from their reactant/product role; moving them to the other side."
+            )
+
+        if not self._overriden_complexes:
+            self._previous_reactants = self.reactants
+            self._previous_products = self.products
+
+        to_products = {f for f in mismatched if f in reactant_formulas}
+        to_reactants = set(mismatched) - to_products
+
+        new_reactant_species = [s for s in self.reactants.species if s.formula not in to_products] + \
+                                [self.products._resolve_species(f) for f in to_reactants]
+        new_product_species = [s for s in self.products.species if s.formula not in to_reactants] + \
+                               [self.reactants._resolve_species(f) for f in to_products]
+
+        self.reactants = Complex(new_reactant_species, default_coeff=-1)
+        self.products = Complex(new_product_species, default_coeff=1)
+
+        self._overriden_complexes = True
+
+        return mismatched
+
+
+    def clear(self):
+
+        if self._overriden_complexes:
+            self.reactants = self._previous_reactants
+            self.products = self._previous_products
+            self._overriden_complexes = False
+
+        self.result_inference = None
+
+        self.update_coefficients({}, verbose=False, _clear=False)
+            
 
 
 
-    # ---- Enthalpy difference of the reaction (DrH) ---- 
+    def __repr__(self):
+        coeffs = self.coefficients
 
-    def enthalpy_diff(self): 
-         
-        if not self.is_balanced: 
-            print('Warning: Computing the Gibbs free-energy difference for unbalanced equation.')
+        def side(species):
+            return " + ".join(f"{abs(coeffs[s.formula]):g} {s.formula}" for s in species)
 
-        return sum([self.coefficients.get(species.formula)*species.standard_enthaply for species in self.reactants+self.products])
-
-
-    def DrH(self): 
-
-        return self.enthalpy_diff()
-
+        return f"{side(self.reactants.species)} = {side(self.products.species)}"
 
 
     def __mul__(self, scalar):
+        """
+        Scale this equation by a non-zero scalar, returning a new `Equation`.
+
+        Known coefficients are scaled by `abs(scalar)` (default coefficients
+        are untouched); a negative scalar also flips reactants and products.
+        """
+
         if not isinstance(scalar, Real) or isinstance(scalar, bool):
             return NotImplemented
 
         if scalar == 0:
-            raise ValueError("Cannot multiply an equation by zero.")
+            raise ValueError("Cannot multiply an Equation by a zero scalar.")
 
-        flip = scalar < 0
-        new_reactants = list(self.products) if flip else list(self.reactants)
-        new_products = list(self.reactants) if flip else list(self.products)
+        known_coefficients = {f: abs(v) * abs(scalar) for f, v in self._known_coefficients.items()}
 
-        if self.balanced_coefficients and self.is_balanced:
-            source_coeffs = self.coefficients
-        else:
-            source_coeffs = self.known_coefficients
+        reactants, products = self.reactants, self.products
+        if scalar < 0:
+            reactants, products = products, reactants
 
-        new_known_coefficients = {formula: coeff * scalar for formula, coeff in source_coeffs.items()}
-
-        return Equation(new_reactants, new_products, known_coefficients=new_known_coefficients)
+        return Equation(reactants.species, products.species, known_coefficients=known_coefficients)
 
 
     def __rmul__(self, scalar):
@@ -441,164 +637,114 @@ class Equation:
 
 
     def __add__(self, other):
+        """
+        Combine two equations into a new one.
+
+        Species unique to either equation carry over unchanged. For a species
+        shared by both:
+        - both known: their signed coefficients are summed (the sum's sign
+          decides the new role); a sum of exactly zero drops the species
+          entirely (it cancels out between the two equations).
+        - only one known: that value is used as-is, the other's default coefficient
+          is discarded.
+        - neither known: keeps the shared side if both agree on it; if they
+          conflict, `self`'s (the first equation's) side wins.
+        """
+
         if not isinstance(other, Equation):
             return NotImplemented
 
-        def is_fully_determined(eq):
-            return bool(eq.balanced_coefficients) and eq.is_balanced
+        self_known = self._known_coefficients
+        other_known = other._known_coefficients
 
-        c1 = self.coefficients if is_fully_determined(self) else self.known_coefficients
-        c2 = other.coefficients if is_fully_determined(other) else other.known_coefficients
+        self_reactants = set(self.reactants.formula)
+        self_products = set(self.products.formula)
+        other_reactants = set(other.reactants.formula)
+        other_products = set(other.products.formula)
 
-        species_registry = {s.formula: s for s in self.reactants + self.products + other.reactants + other.products}
+        species_map = {
+            s.formula: s for s in
+            list(self.reactants.species) + list(self.products.species) +
+            list(other.reactants.species) + list(other.products.species)
+        }
 
-        side1 = {s.formula: ('reactant' if s in self.reactants else 'product') for s in self.reactants + self.products}
-        side2 = {s.formula: ('reactant' if s in other.reactants else 'product') for s in other.reactants + other.products}
+        shared = (self_reactants | self_products) & (other_reactants | other_products)
 
-        new_known_coefficients = {}
-        new_reactants, new_products = [], []
+        new_known = {}
+        new_reactants, new_products = set(), set()
 
-        for formula in species_registry.keys():
-            in1, in2 = formula in c1, formula in c2
-            present1, present2 = formula in side1, formula in side2
+        for f in (self_reactants | self_products) - shared:
+            if f in self_known:
+                new_known[f] = self_known[f]
+            (new_reactants if f in self_reactants else new_products).add(f)
 
-            if in1 and in2:
-                net = c1[formula] + c2[formula]
+        for f in (other_reactants | other_products) - shared:
+            if f in other_known:
+                new_known[f] = other_known[f]
+            (new_reactants if f in other_reactants else new_products).add(f)
 
-                if np.isclose(net, 0.0, atol=1e-6):
+        for f in shared:
+            if f in self_known and f in other_known:
+                combined = self_known[f] + other_known[f]
+
+                if combined == 0:
                     continue
 
-                new_known_coefficients[formula] = net
-                (new_reactants if net < 0 else new_products).append(species_registry[formula])
-                continue
+                new_known[f] = combined
+                (new_reactants if combined < 0 else new_products).add(f)
 
-            if present1 and present2 and side1[formula] != side2[formula]:
-                raise ValueError(
-                    f"Cannot combine species '{formula}': it is a substrate in one equation and a product "
-                    f"in the other, but its coefficient is not known in both equations."
-                )
+            elif f in self_known:
+                new_known[f] = self_known[f]
+                (new_reactants if self_known[f] < 0 else new_products).add(f)
 
-            if in1:
-                new_known_coefficients[formula] = c1[formula]
-                (new_reactants if c1[formula] < 0 else new_products).append(species_registry[formula])
-
-            elif in2:
-                new_known_coefficients[formula] = c2[formula]
-                (new_reactants if c2[formula] < 0 else new_products).append(species_registry[formula])
+            elif f in other_known:
+                new_known[f] = other_known[f]
+                (new_reactants if other_known[f] < 0 else new_products).add(f)
 
             else:
-                side = side1.get(formula, side2.get(formula))
-                (new_reactants if side == 'reactant' else new_products).append(species_registry[formula])
+                # Neither known: `self`'s side is used whether it agrees with
+                # `other`'s (keeping the shared side) or not (self takes over).
+                (new_reactants if f in self_reactants else new_products).add(f)
 
-        return Equation(new_reactants, new_products, known_coefficients=new_known_coefficients)
-
-
-    def __repr__(self):
-        coefficients = self.coefficients
-        LHS, RHS = "", ""
-
-        for formula, coeff in coefficients.items():
-            if coeff<0:
-                LHS += str(-coeff) + " " + formula + " + "
-
-            else:
-                RHS += str(coeff) + " " + formula + " + "
-
-        return LHS[:-3] + " = " + RHS[:-3]
+        return Equation(
+            [species_map[f] for f in new_reactants],
+            [species_map[f] for f in new_products],
+            known_coefficients=new_known
+        )
 
 
-    
+    def __sub__(self, other):
+        """`self - other` is `self + (-1) * other` (see `__add__`, `__mul__`)."""
 
-        
+        if not isinstance(other, Equation):
+            return NotImplemented
 
-
-
-class ConservationLaws:
-
-
-    def __init__(self, eq: Equation, _coeffs = None): 
-        """
-        Construct a nested dictionnary containing the conservation laws of all the element parsed from
-        an Equation instance
-        """
-        _order_element = ["C", "H", "O", "N", "P", "S", "Mg", "Na", "Li", "Cl", "Mn", "Ca", "K", "Fe"]
-        _order_dict = {element: index for index, element in enumerate(_order_element)}
+        return self + (-1) * other
 
 
-        # 1. Identify all unique species and elements
-        all_species = eq.reactants + eq.products
-        all_elements = set()
-        for s in all_species:
-            all_elements.update(s.stoich.keys())
-        
-        all_elements = sorted(all_elements, key=lambda x: _order_dict.get(x, len(_order_element)))
+    def __len__(self):
+
+        return len(self.all_species)
 
 
-        # 2. Initialize the nested structure
-        self.get = {el: {} for el in all_elements}
-        self.get['Charge'] = {}
+    def __getattr__(self, name):
 
-        coeffs = eq.coefficients if _coeffs is None else _coeffs
+        try:
+            s = self.all_species._resolve_species(name)
+        except ValueError:
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
-        for element in all_elements:
-
-            is_empty = True
-            for s in all_species:
-                if s.stoich.get(element, 0) and is_empty:
-                    is_empty = False
-
-                self.get[element][s.formula] = coeffs[s.formula] * s.stoich.get(element, 0) 
-
-            if is_empty:
-                self.get.pop(element)
-        
-        is_empty = True
-        for s in all_species:
-            if s.charge and is_empty:
-                    is_empty = False
-                    
-            self.get['Charge'][s.formula] = coeffs[s.formula] * s.charge 
-
-        if is_empty:
-                self.get.pop('Charge')
-        
-        self.list = list(self.get.keys())
-
-        self.element_to_index = dict(zip(self.list, [i for i in range(len(self.list))]))
-        self.species_to_index = dict(zip([s.formula for s in all_species], [i for i in range(len(all_species))]))
-
-        self.L,  self.rows_L = _matrix_parser(self.to_array, self.element_to_index)
+        return self.coefficients[s.formula]
 
 
-    @property
-    def to_array(self):
-        out = np.zeros((len(self.list), len(self.species_to_index)), dtype=float)
+class ResultDict:
 
-        for element in self.list:
-            for species in self.species_to_index.keys():
-                out[self.element_to_index[element], self.species_to_index[species]] += self.get[element][species]
+    def __init__(self, dict):
+        self.dict = dict
 
-        return out
+    def __getattr__(self, name):
 
+        if name in self.dict:
+            return self.dict[name]
 
-    @property
-    def to_pandas(self):
-        return DataFrame(self.to_array, index=self.list, columns=self.species_to_index.keys())
-
-
-    @property
-    def is_balanced(self): 
-        # A perfectly balanced equation will have all sums equal to 0. 
-        # Therefore, np.sum(..., axis=1) == 0, and (1 + sum) == 1. 
-        # Using np.isclose is much safer for floating point math than exact == or bool()
-
-        return bool( np.allclose(np.sum(self.to_array, axis=1), 0.0, atol=1e-6) ) 
-    
-    
-    @property
-    def rk(self):
-        return np.linalg.matrix_rank(self.to_array)
-    
-
-    def __repr__(self):
-        return DataFrame.__repr__(self.to_pandas)
+        raise AttributeError(f"Available attributes are {list(self.dict.keys())}.")

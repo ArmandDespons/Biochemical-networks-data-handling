@@ -91,7 +91,6 @@ class Atom:
     @property
     def v(self) -> float:
         """Available valence electron"""
-
         return self.valence_electrons - self.reference_valence_electrons
 
     # --- Shorthand Aliases ---

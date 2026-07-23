@@ -13,59 +13,81 @@ class Species:
     Atom._initialize_REGISTRY()
 
 
-    def __new__(cls, formula: str, name: Optional[str] = None, **kwargs):
+    @classmethod
+    def _resolve_formula(cls, formula: Optional[str], name: Optional[str]) -> str:
+        """Determine the canonical DB formula key for a (formula, name) pair.
 
-        if formula not in cls._REGISTRY:
-            cls._REGISTRY[formula] = super().__new__(cls)
+        This is the single source of truth for identity: __new__ uses it to key
+        the registry and __init__ uses it to populate attributes, so a species
+        looked up by formula or by name always maps to the same instance.
+        """
 
-        return cls._REGISTRY[formula]
+        if formula is None and name is None:
+            raise ValueError("Cannot initialize a species without a formula or name.")
+
+        if formula is not None:
+            entry = cls._DATA.get(formula.lower())
+            # A formula can itself be an alias pointing at the canonical formula.
+            return entry if isinstance(entry, str) else formula
+
+        entry = cls._DATA.get(name.lower())
+        if isinstance(entry, str):
+            return entry
+
+        raise ValueError(f"Species named {name} not found in the database")
 
 
-    def __init__(self, formula: str, name: Optional[str] = None, **kwargs):
+    def __new__(cls, formula: Optional[str] = None, name: Optional[str] = None):
 
-        if getattr(self, '_initialized', False):
-            # Update attributes if already initialized, excluding properties
-            for key, value in kwargs.items():
-                if not isinstance(getattr(type(self), key, None), property):
-                    setattr(self, key, value)
+        key = cls._resolve_formula(formula, name)
+
+        if key not in cls._REGISTRY:
+            instance = super().__new__(cls)
+            instance._initialized = False
+            cls._REGISTRY[key] = instance
+
+        return cls._REGISTRY[key]
+
+
+    def __init__(self, formula: Optional[str] = None, name: Optional[str] = None):
+
+        if self._initialized:
             return
 
-        self._initialized = True
-        self.formula = formula
-        
-        db_entry = self._DATA.get(formula, {})
-        if db_entry != {}:
-            self.db_entry = db_entry
+        self.formula = self._resolve_formula(formula, name)
+        entry = self._DATA.get(self.formula)
+        self._override_molar_mass = None
+        self._override_phase = None
+        self._override_organic = None
+        self.alias = name if name else None
+
+        if isinstance(entry, dict):
             self._in_db = True
+            self.db_entry = entry
 
-        else: 
-            self._in_db = False
-            self.db_entry = 'Not found in the database'
+            self.name = self.db_entry.get("Name")
+            self.stoichiometry = dict(self.db_entry.get("Stoichiometry") or {})
+            self.charge = self.db_entry.get("Charge")
+            
+            self._organic = self.db_entry.get("Organic")
+            self._phase = self.db_entry.get("Phase")
+            self._aliases = self.db_entry.get("Aliases", [])
 
-        self.name = name or db_entry.get('Name', formula)
-        
-        self.stoichiometry: Dict[str, float] = {}
-        self.charge: int = 0
-
-        if self.name.lower() != 'electron':
-            self._infer_from_formula()
-        
         else:
-            self.charge: int = +1
+            self._in_db = False
+            self.db_entry = None
+            self.stoichiometry = {}
+            self.charge = 0  # overwritten by _infer_from_formula if the formula has a charge suffix
+            self._organic = None
+            self._phase = None
+            self._aliases = []
 
+            self._infer_from_formula()
 
-        
-        # Internal storage for overridden mass
-        self._override_molar_mass = kwargs.get('molar_mass', None)
+            self.name = name
 
-        combined_data = {**db_entry, **kwargs}
-        for key, value in combined_data.items():
-            safe_key = key.lower().split(' (')[0].replace(" ", "_")
+        self._initialized = True
 
-            # Avoid overwriting properties or element-specific counts
-            if safe_key in ['molar_mass', 'm', 'stoich', 'g', 'h', 'c', 'o', 'h', 'n', 's']:
-                continue
-            setattr(self, safe_key, value)
 
 
     @classmethod
@@ -90,21 +112,22 @@ class Species:
 
 
     @classmethod
-    def from_name(cls, name: str | list[str]):
+    def from_list(cls, lst_species: list[str]):
+        """Instantiate species from a non-homogeneous list mixing chemical formulas and/or chemical names."""
 
-        if isinstance(name, str):
-            _name = name.lower()
+        if not isinstance(lst_species, list):
+            raise TypeError("'lst_species' argument should be an instance of list[str] containing chemical formulas and/or names in the database.")
 
-            if not _name in cls._DATA.keys():
-                raise ValueError(f'{_name} not found in the dataset.')
-            
-            return cls(cls._DATA.get(_name), name=_name)
-        
+        species_list = []
+        for item in lst_species:
+            if not isinstance(item, str):
+                raise TypeError(f"Each item of 'lst_species' must be a string (formula or name), got {type(item).__name__}.")
 
-        elif isinstance(name, list): return [cls.from_name(_name) for _name in name]
-        
+            # A name key maps to a formula string in the DB; a formula key maps to its info dict.
+            # DB name keys are stored lower-case, so match case-insensitively before falling back to a formula lookup.
+            species_list.append(cls(name=item) if isinstance(cls._DATA.get(item.lower()), str) else cls(item))
 
-        else: raise TypeError(f"'name' argument should be an instance of string (str) or list of strings (list[str])")
+        return species_list
             
 
 
@@ -135,6 +158,20 @@ class Species:
     def _update_name(self, value): 
         self.name = value
 
+
+    def __getattr__(self, attr):
+        # Guard against recursion: bail out fast for internal/dunder attributes,
+        # and before `stoichiometry` exists yet (e.g. mid-__init__ or on
+        # bootstrap-only lookups), since `_made_of_atoms` needs it to be set.
+        if attr.startswith('_') or 'stoichiometry' not in self.__dict__:
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
+
+        if attr in Atom._REGISTRY and self._made_of_atoms:
+            return self.stoichiometry.get(Atom.get(attr).formula, 0)
+
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
+
+
     # ---- Degree of reductance (gamma) ----
 
     def gamma(self, per_carbon=False): 
@@ -160,8 +197,9 @@ class Species:
         if self._override_molar_mass is not None:
             return self._override_molar_mass
         
-        # Standard dynamic calculation
-        return sum(Atom.get(s).M * c for s, c in self.stoichiometry.items())
+        if self._made_of_atoms:
+            return sum(Atom.get(s).M * c for s, c in self.stoichiometry.items())
+        
 
     @molar_mass.setter
     def molar_mass(self, value: float):
@@ -172,13 +210,55 @@ class Species:
 
         self._override_molar_mass = value
 
+
+    # ---- Phase ----
+
+    @property
+    def phase(self):
+        """Returns the overridden phase if present, otherwise the DB-defined one."""
+        if self._override_phase is not None:
+            return self._override_phase
+
+        return self._phase
+
+
+    @phase.setter
+    def phase(self, value):
+        """Set a custom phase with context-specific behavior."""
+
+        if self._phase is not None:
+            print(f"Warnings: Species '{self.formula}' already has a defined phase ('{self._phase}'). Overriding with {value}.")
+
+        self._override_phase = value
+
+
+    # ---- Organic ----
+
+    @property
+    def organic(self):
+        """Returns the overridden organic flag if present, otherwise the DB-defined one."""
+        if self._override_organic is not None:
+            return self._override_organic
+
+        return self._organic
+
+
+    @organic.setter
+    def organic(self, value):
+        """Set a custom organic flag with context-specific behavior."""
+
+        if self._organic is not None:
+            print(f"Warnings: Species '{self.formula}' already has a defined organic flag ('{self._organic}'). Overriding with {value}.")
+
+        self._override_organic = value
+
     @property
     def M(self) -> float:
         return self.molar_mass
     
     @M.setter
     def M(self, value):
-        return self.molar_mass(value)
+        self.molar_mass = value
 
 
     # ---- Shortland to obtain the stoichiometry dictionary ----
@@ -264,6 +344,7 @@ class Species:
 
         if isinstance(activity, str): activity = literal_eval(activity)
         elif activity is None: pass
+        elif isinstance(activity, dict): pass
         elif isnan(activity): activity = None
 
         if self._in_db:
