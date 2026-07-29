@@ -278,7 +278,7 @@ CHEMICAL_DB = {
         'Name': 'hydrogen',
         'Stoichiometry': {'H': 2.0},
         'Charge': 0,
-        'Phase': 'aq',
+        'Phase': 'g',
         'Organic': False,
         'Enthalpy of formation (kJ/mol)': 0.0,
         'Free-energy of formation (kJ/mol)': {'Amend': 17.72, 'eQ pH=0': 19.2, 'eQ pH=7.5': 104.8, 'Kleerebezem': 17.72},

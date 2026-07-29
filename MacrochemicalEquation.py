@@ -2,7 +2,7 @@ from typing import Dict, List, Optional, Union
 from collections.abc import Iterable
 from ast import literal_eval
 
-from pandas import DataFrame
+from pandas import DataFrame, isna
 
 from .Species import Species
 from .Equation import Equation
@@ -135,13 +135,16 @@ class MacrochemEquation(Equation):
 
 
     @classmethod
-    def from_parsed_df(cls, df: DataFrame, index: Optional[int] = None, **kwargs):
+    def from_parsed_df(cls, df: DataFrame, index: Optional[int] = None, yields: Optional[DataFrame] = None, **kwargs):
+
+        if yields is not None and not yields.index.equals(df.index):
+            raise ValueError("'yields' must share the same index as 'df'.")
 
         if index is None:
-            return {i: cls.from_parsed_df(df, i, **kwargs) for i in df.index}
+            return {i: cls.from_parsed_df(df, i, yields=yields, **kwargs) for i in df.index}
 
         elif isinstance(index, Iterable):
-            return {i: cls.from_parsed_df(df, i, **kwargs) for i in index}
+            return {i: cls.from_parsed_df(df, i, yields=yields, **kwargs) for i in index}
 
         elif isinstance(index, int):
 
@@ -165,7 +168,9 @@ class MacrochemEquation(Equation):
                 index={'H biomass': 'H', 'O biomass': 'O', 'N biomass': 'N'}
             ).to_dict()
 
-            return cls(
+            row_yields = yields.loc[index].to_dict() if yields is not None else None
+
+            eq = cls(
                 substrates=substrates,
                 products=products,
                 metabolic_type=metabolic_type,
@@ -175,6 +180,29 @@ class MacrochemEquation(Equation):
                 carbon_source=Cs,
                 **kwargs
             )
+
+            # Applied post-init via update_yields (not known_coefficients at
+            # construction) so a sign in `yields` that contradicts the
+            # substrates/products role gets caught and corrected (algebraic=True,
+            # the default) with a printed message, instead of being silently
+            # forced to match the role as __init__'s known_coefficients would.
+            if row_yields is not None:
+                eq.update_yields(row_yields, verbose=True)
+
+            def _missing(value):
+                return isna(value) or (isinstance(value, str) and value.strip().lower() in ('n/a', 'na'))
+
+            T_cols = [col for col in df.columns if 'temperature' in col.lower()]
+            if T_cols:
+                T_value = df.loc[index, T_cols[0]]
+                eq.T = 298.15 if _missing(T_value) else T_value
+
+            pH_cols = [col for col in df.columns if 'ph' in col.lower()]
+            if pH_cols:
+                pH_value = df.loc[index, pH_cols[0]]
+                eq.pH = 7 if _missing(pH_value) else pH_value
+
+            return eq
 
         else:
             raise TypeError("'index' should be either an iterable object or an int.")
@@ -326,6 +354,44 @@ class MacrochemEquation(Equation):
 
     # ----- Yields (y) -----
 
+    @staticmethod
+    def _as_float(value) -> Optional[float]:
+        """`value` converted to a float, or None if it can't be interpreted as one (NaN, pandas NA, non-numeric, ...)."""
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return None
+
+        return None if isna(value) else value
+
+
+    def update_yields(
+            self,
+            new_yields: Dict[Union[str, Species], float],
+            verbose: bool = True,
+            algebraic: bool = True,
+            _clear: bool = True
+            ):
+        """
+        `Equation.update_coefficients`, with `new_yields`'s keys first resolved
+        from `biomass_alias` to the real biomass formula, and any entry whose
+        value isn't a valid float (NaN, pandas NA, a non-numeric string, ...)
+        dropped alongside the unrecognized-species keys `update_coefficients`
+        already ignores.
+        """
+
+        resolved = self._parse_biomass_alias(dict(new_yields), self._biomass_alias, self.biomass.formula)
+
+        valid = {}
+        for key, value in resolved.items():
+            value = self._as_float(value)
+            if value is not None:
+                valid[key] = value
+
+        self.update_coefficients(valid, verbose=verbose, algebraic=algebraic, _clear=_clear)
+
+
     @property
     def _yields(self) -> Dict[str, float]:
         return self._known_coefficients
@@ -336,7 +402,7 @@ class MacrochemEquation(Equation):
 
     @yields.setter
     def yields(self, value: Dict[Union[str, Species], float]):
-        self.update_coefficients(self._parse_biomass_alias(dict(value), self._biomass_alias, self.biomass.formula))
+        self.update_yields(value)
 
     @property
     def y(self):

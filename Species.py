@@ -360,7 +360,7 @@ class Species:
 
             if _activity is None: 
 
-                if self.db_entry['Phase']=='aq' and self.formula!='H+1': 
+                if self.phase=='aq' and self.formula!='H+1': 
                     _activity = 1e-3
 
                 elif self.formula=='H+1': 
@@ -370,7 +370,13 @@ class Species:
                     _activity = 1
 
             R = 8.31446261815324e-3
-            mu0 = self.standard_free_energy(method=method)*(T/298.15) + self.standard_enthaply*(1 - T/298.15)
+
+            if self.standard_enthaply:
+                mu0 = self.standard_free_energy(method=method)*(T/298.15) + self.standard_enthaply*(1 - T/298.15)
+
+            else:
+                mu0 = self.standard_free_energy(method=method)
+
 
             return mu0 + R*T*log(_activity)
         

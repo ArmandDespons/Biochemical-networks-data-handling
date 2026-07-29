@@ -71,7 +71,7 @@ class Equation:
         from .ElementalConservation import ElementalConservation
         self.element_conservation = ElementalConservation(self)
 
-        self.balanced_coefficients = self._default_coefficients.copy() if self.is_balanced else None
+        self.balanced_coefficients = self._default_coefficients.copy() if self.is_balanced() else None
 
         self._overriden_complexes = False
         self._last_independent_set = set()
@@ -87,7 +87,8 @@ class Equation:
         Each key (formula, Species instance, name, or alias) is matched against
         whichever side it belongs to; the resolved coefficient's sign is then
         forced to the conventional one for that side (negative for reactants,
-        positive for products) regardless of the sign the caller used.
+        positive for products) regardless of the sign the caller used. Keys
+        that match no species in either side are silently ignored.
         """
 
         reactant_known, product_known = {}, {}
@@ -107,8 +108,6 @@ class Equation:
                 continue
             except ValueError:
                 pass
-
-            raise ValueError(f"'{key}' does not match the formula, name, or alias of any species in the reactants or products.")
 
         return reactant_known, product_known
 
@@ -231,10 +230,10 @@ class Equation:
 
         return self.reactants + self.products
 
-    @property
-    def is_balanced(self):
+    
+    def is_balanced(self, tol: float = 1e-5):
 
-        return bool( np.allclose(np.sum(self.element_conservation.matrix, axis=1), 0.0) )
+        return bool( np.allclose(np.sum(self.element_conservation.matrix, axis=1), 0.0, atol=tol) )
     
 
     def element_recovery(self, element: str, in_percent: bool = True):
@@ -300,7 +299,7 @@ class Equation:
     def DrH(self, _warn: bool = True):
         """Standard reaction enthalpy: sum of each species' signed coefficient times its `standard_enthaply`."""
 
-        if _warn and not self.is_balanced:
+        if _warn and not self.is_balanced():
             print(f"Warnings: equation '{self}' is not balanced; DrH may not be physically meaningful.")
 
         coeffs = self.coefficients
@@ -315,7 +314,7 @@ class Equation:
         `self.activity`.
         """
 
-        if _warn and not self.is_balanced:
+        if _warn and not self.is_balanced():
             print(f"Warnings: equation '{self}' is not balanced; DrG may not be physically meaningful.")
 
         coeffs = self.coefficients
@@ -328,7 +327,7 @@ class Equation:
 
     def DrS(self, method: str = 'eQ pH=0'):
 
-        if not self.is_balanced:
+        if not self.is_balanced():
             print(f"Warnings: equation '{self}' is not balanced; DrS may not be physically meaningful.")
 
         return ( self.DrH(_warn=False) - self.DrG(method=method, _warn=False) ) / self.T
@@ -347,11 +346,23 @@ class Equation:
         return self.all_species._default_coefficients
 
 
-    def update_coefficients(self, new_coeff: Dict[Union[str, Species], float], verbose: bool = True, _clear: bool = True):
+    def update_coefficients(
+            self,
+            new_coeff: Dict[Union[str, Species], float],
+            verbose: bool = True,
+            algebraic: bool = True,
+            _clear: bool = True
+            ):
         """
-        Replace the known coefficients with `new_coeff` (see `_resolve_coeff`: the
-        caller's sign is ignored and forced to each species' conventional role —
-        negative for reactants, positive for products).
+        Replace the known coefficients with `new_coeff`. Keys (formula, Species
+        instance, name, or alias) matching no species in the equation are ignored.
+
+        If `algebraic` (the default), `new_coeff`'s signs are taken at face value:
+        a species whose given sign contradicts its current reactant/product role
+        is moved to the other side instead (`_resolve_complex` — this also prints
+        a message if `verbose`, and sets `_previous_reactants`/`_previous_products`/
+        `_overriden_complexes`). If False, the caller's sign is ignored and forced
+        to each species' current role instead (`_resolve_coeff`).
 
         Species previously in `_known_coefficients` but absent from `new_coeff`
         fall back to their default coefficient; if `verbose`, report which ones.
@@ -360,6 +371,9 @@ class Equation:
         """
 
         if _clear: self.clear()
+
+        if algebraic:
+            self._resolve_complex(new_coeff, verbose=verbose)
 
         reactant_known, product_known = self._resolve_coeff(new_coeff)
 
@@ -453,7 +467,7 @@ class Equation:
 
         try:
             
-            self.update_coefficients(self._known_coefficients, _clear=True) 
+            self.update_coefficients(self._known_coefficients, algebraic=False, _clear=True)
 
             n_species = len(self.element_conservation.cols)
             rk = self.element_conservation.rk
@@ -511,7 +525,11 @@ class Equation:
 
             self._previous_coefficients = dict(current)
 
-            self.update_coefficients(new_known, verbose=False, _clear=False)
+            # algebraic=False: `known_coeff` values are magnitudes here, exactly
+            # like `_resolve_coeff` everywhere else in the class -- their sign
+            # is not a role assertion. The only role correction in this method
+            # comes from the solved (independent-set) values below.
+            self.update_coefficients(new_known, verbose=False, algebraic=False, _clear=False)
 
             LHS, RHS = self.element_conservation._linear_sys(independent_set)
             x = np.linalg.solve(LHS, RHS)
@@ -522,7 +540,11 @@ class Equation:
 
             solved_magnitude = {f: abs(v) for f, v in inferred.items()}
 
-            self.update_coefficients({**new_known, **solved_magnitude}, verbose=False, _clear=False)
+            # algebraic=False: `solved_magnitude` is deliberately all-positive (the
+            # sign/role decision was just made above, from the signed `inferred`
+            # values); re-running it through the algebraic path here would misread
+            # every already-correct reactant as a fresh mismatch and swap it back.
+            self.update_coefficients({**new_known, **solved_magnitude}, verbose=False, algebraic=False, _clear=False)
 
             self.balanced_coefficients = dict(self._known_coefficients)
 
@@ -537,11 +559,13 @@ class Equation:
             self.result_inference = ResultDict(result)
 
 
-    def _resolve_complex(self, coeff: Dict[str, float], verbose: bool = True):
+    def _resolve_complex(self, coeff: Dict[Union[str, Species], float], verbose: bool = True):
         """
-        Check `coeff` (a {formula: signed value} dict, e.g. from solving the
-        linear system) for species whose sign doesn't match their current
-        reactant/product role, and move any such species to the other complex.
+        Check `coeff` (a {species: signed value} dict, e.g. from solving the
+        linear system, or an algebraic `update_coefficients` call) for species
+        whose sign doesn't match their current reactant/product role, and move
+        any such species to the other complex. Keys (formula, Species instance,
+        name, or alias) that match no species in the equation are ignored.
 
         The pre-move `reactants`/`products` are saved to `self._previous_reactants`/
         `self._previous_products` only the first time this happens (when
@@ -550,10 +574,18 @@ class Equation:
         by an intermediate, already-moved state from a prior call.
         """
 
+        resolved = {}
+        for key, value in coeff.items():
+            try:
+                s = self.all_species._resolve_species(key)
+            except ValueError:
+                continue
+            resolved[s.formula] = value
+
         reactant_formulas = set(self.reactants.formula)
 
         mismatched = [
-            f for f, v in coeff.items()
+            f for f, v in resolved.items()
             if (f in reactant_formulas and v > 0) or (f not in reactant_formulas and v < 0)
         ]
 

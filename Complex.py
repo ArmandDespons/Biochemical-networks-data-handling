@@ -117,7 +117,7 @@ class Complex:
 
 
     def _update(self, new_coeff: Dict[Union[str, Species], float]):
-        """Replace `_known_coefficients` with `new_coeff` and recompute `_default_coefficients` to match.
+        """Replace `_known_coefficients` with `new_coeff` and recompute `_default_coefficients` to match. 
         """
 
         self._known_coefficients = {
