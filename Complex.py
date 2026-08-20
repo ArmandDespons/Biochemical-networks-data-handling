@@ -211,6 +211,8 @@ class Complex:
 
         return merged
 
+    def __iter__(self):
+        return iter(self.species)
 
     def __len__(self):
         

@@ -278,7 +278,7 @@ CHEMICAL_DB = {
         'Name': 'hydrogen',
         'Stoichiometry': {'H': 2.0},
         'Charge': 0,
-        'Phase': 'g',
+        'Phase': 'aq',
         'Organic': False,
         'Enthalpy of formation (kJ/mol)': 0.0,
         'Free-energy of formation (kJ/mol)': {'Amend': 17.72, 'eQ pH=0': 19.2, 'eQ pH=7.5': 104.8, 'Kleerebezem': 17.72},
@@ -353,7 +353,7 @@ CHEMICAL_DB = {
     'manganese dioxide': 'MnO2',
 
     'Mn+2': {
-        'Name': 'manganese II+ ion',
+        'Name': 'manganese II',
         'Stoichiometry': {'Mn': 1},
         'Charge': 2,
         'Phase': 'aq',
@@ -363,7 +363,7 @@ CHEMICAL_DB = {
         'Molar mass (g/mol)': 55.0,
     },
 
-    'manganese II+ ion': 'Mn+2',
+    'manganese ii': 'Mn+2',
 
     'CH3NH3+1': {
         'Name': 'methylamine',
@@ -510,7 +510,7 @@ CHEMICAL_DB = {
 
     'C4H10O': {
         'Name': '1-butanol',
-        'Stoichiometry': {'C': 4, 'H': 10.0, 'O': 1.0, 'N': 1.0},
+        'Stoichiometry': {'C': 4, 'H': 10.0, 'O': 1.0},
         'Charge': 0,
         'Phase': 'aq',
         'Organic': True,
@@ -676,8 +676,8 @@ CHEMICAL_DB = {
         'Molar mass (g/mol)': 55.845,
     },
 
-    'Iron (II)': 'Fe+2',
-    'Ferrous iron': 'Fe+2',
+    'iron (ii)': 'Fe+2',
+    'ferrous iron': 'Fe+2',
 
 
     'Fe+3': {
@@ -691,7 +691,7 @@ CHEMICAL_DB = {
         'Molar mass (g/mol)': 55.845,
     },
 
-    'iron (III)': 'Fe+3',
+    'iron (iii)': 'Fe+3',
     'ferric iron': 'Fe+3',
 
     'C6H15N4O2+1': {
@@ -768,5 +768,6 @@ CHEMICAL_DB = {
     },
 
     'e-1': 'e-',
-    'electron': 'e-'
-}   
+    'electron': 'e-', 
+
+}

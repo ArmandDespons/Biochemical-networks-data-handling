@@ -281,14 +281,25 @@ class Equation:
         phase-based default for any species left unmentioned.
         """
 
+        self._activity = self._resolve_activity(value)
+
+
+    def _resolve_activity(self, value: Optional[Union[float, Dict[Union[str, Species], float]]]):
+        """Validate/resolve an `activity`-shaped value without assigning it to `self._activity`.
+
+        Used both by the `activity` setter and by `DrG`/`DrS`'s optional
+        `activity` override, so a one-off value passed to those methods goes
+        through the exact same resolution as the persistent attribute.
+        """
+
         if value is None:
-            self._activity = None
+            return None
 
         elif isinstance(value, dict):
-            self._activity = {self.all_species._resolve_species(k).formula: v for k, v in value.items()}
+            return {self.all_species._resolve_species(k).formula: v for k, v in value.items()}
 
         elif isinstance(value, Real) and not isinstance(value, bool):
-            self._activity = float(value)
+            return float(value)
 
         else:
             raise TypeError(
@@ -307,11 +318,22 @@ class Equation:
         return sum(coeffs[s.formula] * s.standard_enthaply for s in self.all_species.species)
 
 
-    def DrG(self, method: str = 'eQ pH=0', _warn: bool = True):
+    def DrG(
+        self,
+        method: str = 'eQ pH=0',
+        pH: Optional[float] = None,
+        T: Optional[float] = None,
+        activity: Optional[Union[float, Dict[Union[str, Species], float]]] = None,
+        _warn: bool = True
+    ):
         """
         Reaction Gibbs free energy: sum of each species' signed coefficient
         times its `chemical_potential`, evaluated at `self.T`, `self.pH`, and
-        `self.activity`.
+        `self.activity` by default.
+
+        `pH`, `T`, and `activity` override those attributes for this call only
+        (same accepted shapes as the `activity` setter for `activity`), without
+        touching `self._pH`, `self._T`, or `self._activity`.
         """
 
         if _warn and not self.is_balanced():
@@ -319,18 +341,32 @@ class Equation:
 
         coeffs = self.coefficients
 
+        eff_pH = self.pH if pH is None else float(pH)
+        eff_T = self.T if T is None else float(T)
+        eff_activity = self.activity if activity is None else self._resolve_activity(activity)
+
         return sum(
-            coeffs[s.formula] * s.chemical_potential(activity=self.activity, T=self.T, pH=self.pH, method=method)
+            coeffs[s.formula] * s.chemical_potential(activity=eff_activity, T=eff_T, pH=eff_pH, method=method)
             for s in self.all_species.species
         )
 
 
-    def DrS(self, method: str = 'eQ pH=0'):
+    def DrS(
+        self,
+        method: str = 'eQ pH=0',
+        pH: Optional[float] = None,
+        T: Optional[float] = None,
+        activity: Optional[Union[float, Dict[Union[str, Species], float]]] = None
+    ):
+        """Reaction entropy: `(DrH - DrG) / T`. `pH`/`T`/`activity` override
+        `self.pH`/`self.T`/`self.activity` for this call only (see `DrG`)."""
 
         if not self.is_balanced():
             print(f"Warnings: equation '{self}' is not balanced; DrS may not be physically meaningful.")
 
-        return ( self.DrH(_warn=False) - self.DrG(method=method, _warn=False) ) / self.T
+        eff_T = self.T if T is None else float(T)
+
+        return ( self.DrH(_warn=False) - self.DrG(method=method, pH=pH, T=T, activity=activity, _warn=False) ) / eff_T
 
 
     # ----- Coefficients properties/setter -----

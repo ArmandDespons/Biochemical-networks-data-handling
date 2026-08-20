@@ -7,6 +7,7 @@ from .MacrochemicalEquation import *
 from .misc import *
 
 from .METABOLIC_TYPES import METABOLIC_TYPES
+from .CHEMICAL_DB import CHEMICAL_DB
 
 # This controls what is exported when someone uses 'from core import *'
 __all__ = [
@@ -18,5 +19,6 @@ __all__ = [
     "MacrochemEquation",
     "FERMENTATION_PRODUCTS", 
     "METABOLIC_TYPES",
-    "FERMENTATION_CLASS"
+    "FERMENTATION_CLASS", 
+    "CHEMICAL_DB"
     ]

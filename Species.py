@@ -55,10 +55,13 @@ class Species:
             return
 
         self.formula = self._resolve_formula(formula, name)
+
         entry = self._DATA.get(self.formula)
+
         self._override_molar_mass = None
         self._override_phase = None
         self._override_organic = None
+        
         self.alias = name if name else None
 
         if isinstance(entry, dict):
@@ -288,7 +291,7 @@ class Species:
             h_CO2 = -393.5
             h_H2O = -285.8
 
-            return self.stoich.get('C', 0)*h_CO2 + self.stoich.get('H', 0)/2*h_H2O + q_c 
+            return self.stoich.get('C', 0) * h_CO2 + self.stoich.get('H', 0)/2 * h_H2O + q_c 
         
         else: 
             raise NotImplementedError('Not implemented yet')
@@ -318,9 +321,9 @@ class Species:
         elif self.name=='biomass':
             S_C, S_H, S_O, S_N = 5.74e-3, 65.34e-3, 102.58e-3, 91.81e-3
 
-            entropy_of_formation  = -0.813*(self.stoich.get('C', 0)*S_C + self.stoich.get('H', 0)*S_H + self.stoich.get('O', 0)*S_O + self.stoich.get('N', 0)*S_N)
+            entropy_of_formation  = -0.813 * (self.stoich['C'] * S_C + self.stoich['H'] * S_H + self.stoich['O'] * S_O + self.stoich['N'] * S_N)
 
-            return self.standard_enthaply - T*entropy_of_formation
+            return self.standard_enthaply - T * entropy_of_formation
         
         else: 
             raise NotImplementedError('Not implemented yet')
@@ -352,8 +355,7 @@ class Species:
             _activity = None
 
             if isinstance(activity, dict):
-                if self.formula in activity.keys(): 
-                    _activity = activity.get(self.formula)
+                _activity = activity.get(self.formula, None)
 
             if isinstance(activity, float) or isinstance(activity, int): 
                 _activity = activity

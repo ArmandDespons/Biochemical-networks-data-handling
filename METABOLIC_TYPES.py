@@ -50,7 +50,7 @@ METABOLIC_TYPES = {
     },
 
     "lactose aerobic respiration": {
-        "ox": {"C12H22O11 (lactose)": -1, "H2O": -25, "CHO3-1": 12, "H+1": 60, "e-": 48},
+        "ox": {"C12H22O11": -1, "H2O": -25, "CHO3-1": 12, "H+1": 60, "e-": 48},
         "red": {"O2": -1, "H+1": -4, "e-": -4, "H2O": 2}
     },
 
@@ -128,108 +128,108 @@ METABOLIC_TYPES = {
 
 # ------------ DENITRIFICATION ------------ 
 
-    "acetate-nitrate denitrification": {
+    "acetate nitrate denitrification": {
         "ox": {"C2H3O2-1": -1, "H2O": -4, "CHO3-1": 2, "H+1": 9, "e-": 8},
         "red": {"NO3-1": -1, "H+1": -6, "e-": -5, "N2": .5, "H2O": 3}
     },
 
-    "acetate-nitrite denitrification": {
+    "acetate nitrite denitrification": {
         "ox": {"C2H3O2-1": -1, "H2O": -4, "CHO3-1": 2, "H+1": 9, "e-": 8},
         "red": {"NO2-1": -1, "H+1": -4, "e-": -3, "N2": .5, "H2O": 2}
     },
 
-    "formate-nitrate denitrification": {
+    "formate nitrate denitrification": {
         "ox": {"CHO2-1": -1, "H2O": -1, "CHO3-1": 1, "H+1": 2, "e-": 2},
         "red": {"NO3-1": -1, "H+1": -6, "e-": -5, "N2": .5, "H2O": 3}
     },
 
-    "formate-nitrite denitrification": {
+    "formate nitrite denitrification": {
         "ox": {"CHO2-1": -1, "H2O": -1, "CHO3-1": 1, "H+1": 2, "e-": 2},
         "red": {"NO2-1": -1, "H+1": -4, "e-": -3, "N2": .5, "H2O": 2}
     },
 
 # ------------ AMMONIFICATION ------------ 
 
-    "lactate-nitrate ammonification": {
-        "ox": {"C3H5O3-1": -1, "H2O": -3, "C2H3O2-1": 1, "CHO3-1": 1, "H+1": 5, "e-": 4}, 
+    "lactate nitrate ammonification": {
+        "ox": {"C3H5O3-1": -1, "H2O": -2, "C2H3O2-1": 1, "CHO3-1": 1, "H+1": 5, "e-": 4}, 
         "red": {"NO3-1": -1, "H+1": -10, "e-": -8, "NH4+1": 1, "H2O": 3}
     },
 
-    "lactate-nitrite ammonification": {
-        "ox": {"C3H5O3-1": -1, "H2O": -3, "C2H3O2-1": 1, "CHO3-1": 1, "H+1": 5, "e-": 4}, 
+    "lactate nitrite ammonification": {
+        "ox": {"C3H5O3-1": -1, "H2O": -2, "C2H3O2-1": 1, "CHO3-1": 1, "H+1": 5, "e-": 4}, 
         "red": {"NO2-1": -1, "H+1": -8, "e-": -6, "NH4+1": 1, "H2O": 2}
     },
 
-    "acetate-nitrate ammonification": {
+    "acetate nitrate ammonification": {
         "ox": {"C2H3O2-1": -1, "H2O": -4, "CHO3-1": 2, "H+1": 9, "e-": 8}, 
         "red": {"NO3-1": -1, "H+1": -10, "e-": -8, "NH4+1": 1, "H2O": 3}
     },
 
-    "acetate-nitrite ammonification": {
+    "acetate nitrite ammonification": {
         "ox": {"C2H3O2-1": -1, "H2O": -4, "CHO3-1": 2, "H+1": 9, "e-": 8}, 
         "red": {"NO2-1": -1, "H+1": -8, "e-": -6, "NH4+1": 1, "H2O": 2}
     },
 
-    "formate-nitrate ammonification": {
+    "formate nitrate ammonification": {
         "ox": {"CHO2-1": -1, "H2O": -1, "CHO3-1": 1, "H+1": 2, "e-": 2}, 
         "red": {"NO3-1": -1, "H+1": -10, "e-": -8, "NH4+1": 1, "H2O": 3}
     },
 
-    "formate-nitrite ammonification": {
+    "formate nitrite ammonification": {
         "ox": {"CHO2-1": -1, "H2O": -1, "CHO3-1": 1, "H+1": 2, "e-": 2}, 
         "red": {"NO2-1": -1, "H+1": -8, "e-": -6, "NH4+1": 1, "H2O": 2}
     },
 
 # ------------ SULFUR RESPIRATION ------------
 
-    "acetate-sulfur respiration": {
+    "acetate sulfur respiration": {
         "ox": {"C2H3O2-1": -1, "H2O": -4, "CHO3-1": 2, "H+1": 9, "e-": 8},
         "red": {"S": -1, "H+1": -1, "e-": -2, "HS-1": 1}
     },
 
-    "acetate-sulfate respiration": {
+    "acetate sulfate respiration": {
         "ox": {"C2H3O2-1": -1, "H2O": -4, "CHO3-1": 2, "H+1": 9, "e-": 8},
         "red": {"SO4-2": -1, "H+1": -9, "e-": -8, "HS-1": 1, "H2O": 4}
     },
 
-    "ethanol-sulfate respiration": {
+    "ethanol sulfate respiration": {
         "ox": {"C2H6O": -1, "H2O": -5, "CHO3-1": 2, "H+1": 14, "e-": 12},
         "red": {"SO4-2": -1, "H+1": -9, "e-": -8, "HS-1": 1, "H2O": 4}
     },
 
-    "ethanol-sulfur respiration": {
+    "ethanol sulfur respiration": {
         "ox": {"C2H6O": -1, "H2O": -5, "CHO3-1": 2, "H+1": 14, "e-": 12},
         "red": {"S": -1, "H+1": -1, "e-": -2, "HS-1": 1}
     },
 
 # ------------ GLUCOSE FERMENTATION ------------
 
-    "glucose fermentation (I)": {
+    # "glucose fermentation (I)": {
 
-        "ox": {"C6H12O6": -1, "C3H3O3-1": 2, "H+1": 6, "e-": 4},
+    #     "ox": {"C6H12O6": -1, "C3H3O3-1": 2, "H+1": 6, "e-": 4},
 
-        "red": {
+    #     "red": {
 
-            "C2H3O2-1": {"C3H3O3-1": -1, "H2O": -1, "CHO2-1": 1, "C2H3O2-1": 1, "H+1": 1},
-            "C2H6O": {"C3H3O3-1": -1, "H2O": -1, "H+1": -2, "e-": -2, "C2H6O": 1, "CHO3-1": 1},
-            "C3H5O3-1": {"C3H3O3-1": -1, "H+1": -2, "e-": -2, "C3H5O3-1": 1},
-            "C3H8O3": {"C3H3O3-1": -1, "H+1": -5, "e-": -4, "C3H8O3": 1},
-            "C4H4O4-2": {"C3H3O3-1": -1, "CHO3-1": -1, "H+1": -4, "e-": -4, "C4H4O4-2": 1, "H2O": 2}
-        }
-    },
+    #         "C2H3O2-1": {"C3H3O3-1": -1, "H2O": -1, "CHO2-1": 1, "C2H3O2-1": 1, "H+1": 1},
+    #         "C2H6O": {"C3H3O3-1": -1, "H2O": -1, "H+1": -2, "e-": -2, "C2H6O": 1, "CHO3-1": 1},
+    #         "C3H5O3-1": {"C3H3O3-1": -1, "H+1": -2, "e-": -2, "C3H5O3-1": 1},
+    #         "C3H8O3": {"C3H3O3-1": -1, "H+1": -5, "e-": -4, "C3H8O3": 1},
+    #         "C4H4O4-2": {"C3H3O3-1": -1, "CHO3-1": -1, "H+1": -4, "e-": -4, "C4H4O4-2": 1, "H2O": 2}
+    #     }
+    # },
 
-    "glucose fermentation (II)": {
+    # "glucose fermentation (II)": {
 
-        "ox": {"C6H12O6": -1, "C21H32N7O16P3S": -2, "H2O": -2, "C23H34N7O17P3S": 2, "CHO3-1": 2, "H+1": 10, "e-": 8},
+    #     "ox": {"C6H12O6": -1, "C21H32N7O16P3S": -2, "H2O": -2, "C23H34N7O17P3S": 2, "CHO3-1": 2, "H+1": 10, "e-": 8},
 
-        "red": {
-            "C2H3O2-1": {"C23H34N7O17P3S": -1, "H2O": -1, "C2H3O2-1": 1, "H+1": 1, "C21H32N7O16P3S": 1},
-            "C4H7O2-1": {"C23H34N7O17P3S": -1, "H+1": -1.5, "e-": -2, "C4H7O2-1": .5, "C21H32N7O16P3S": 1},
-            "H2": {"H+1": -1, "e-": -1, "H2": .5},
-            "C4H10O": {"C23H34N7O17P3S": -1, "H+1": -4, "e-": -4, "C4H10O": .5, "H2O": .5, "C21H32N7O16P3S": 1},
-            "C2H6O": {"C23H34N7O17P3S": -1, "H+1": -4, "e-": -4, "C2H6O": 1, "C21H32N7O16P3S": 1}
-        }
-    },
+    #     "red": {
+    #         "C2H3O2-1": {"C23H34N7O17P3S": -1, "H2O": -1, "C2H3O2-1": 1, "H+1": 1, "C21H32N7O16P3S": 1},
+    #         "C4H7O2-1": {"C23H34N7O17P3S": -1, "H+1": -1.5, "e-": -2, "C4H7O2-1": .5, "C21H32N7O16P3S": 1},
+    #         "H2": {"H+1": -1, "e-": -1, "H2": .5},
+    #         "C4H10O": {"C23H34N7O17P3S": -1, "H+1": -4, "e-": -4, "C4H10O": .5, "H2O": .5, "C21H32N7O16P3S": 1},
+    #         "C2H6O": {"C23H34N7O17P3S": -1, "H+1": -4, "e-": -4, "C2H6O": 1, "C21H32N7O16P3S": 1}
+    #     }
+    # },
 
 
     "glucose fermentation": {
@@ -238,7 +238,7 @@ METABOLIC_TYPES = {
 
         "red I": {
 
-            "C2H3O2-1": {"C3H3O3-1": -1, "H2O": -1, "CHO2-1": 1, "C2H3O2-1": 1, "H+1": 1},
+            "CHO2-1": {"C3H3O3-1": -1, "H2O": -1, "CHO2-1": 1, "C2H3O2-1": 1, "H+1": 1},
             "C2H6O": {"C3H3O3-1": -1, "H2O": -1, "H+1": -2, "e-": -2, "C2H6O": 1, "CHO3-1": 1},
             "C3H5O3-1": {"C3H3O3-1": -1, "H+1": -2, "e-": -2, "C3H5O3-1": 1},
             "C3H8O3": {"C3H3O3-1": -1, "H+1": -5, "e-": -4, "C3H8O3": 1},
