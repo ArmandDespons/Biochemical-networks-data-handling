@@ -140,8 +140,6 @@ CHEMICAL_DB = {
         'Molar mass (g/mol)': 18.0,
     },
 
-    
-
     'ammonium': 'NH4+1',
 
     'CHO3-1': {
@@ -365,9 +363,9 @@ CHEMICAL_DB = {
 
     'manganese ii': 'Mn+2',
 
-    'CH3NH3+1': {
+    'CH6N+1': {
         'Name': 'methylamine',
-        'Stoichiometry': {'C': 1, 'H': 3.0, 'N': 1.0},
+        'Stoichiometry': {'C': 1, 'H': 6.0, 'N': 1.0},
         'Charge': 1,
         'Phase': 'aq',
         'Organic': True,
@@ -376,7 +374,7 @@ CHEMICAL_DB = {
         'Molar mass (g/mol)': 32.0,
     },
 
-    'methylamine': 'CH3NH3+1',
+    'methylamine': 'CH6N+1',
 
     'CH4O': {
         'Name': 'methanol',
@@ -664,6 +662,18 @@ CHEMICAL_DB = {
 
     'maltose': 'C12H22O11 (maltose)',
 
+    'C12H22O11 (trehalose)': {
+        'Name': 'trehalose',
+        'Stoichiometry': {'C': 12, 'H': 22.0, 'O': 11.0},
+        'Charge': 0,
+        'Phase': 'aq',
+        'Organic': True,
+        'Enthalpy of formation (kJ/mol)': -2240.9,
+        'Free-energy of formation (kJ/mol)': {'eQ pH=0': -1563.5, 'eQ pH=7.5': -622.2},
+        'Molar mass (g/mol)': 342.0,
+    },
+
+    'trehalose': 'C12H22O11 (trehalose)',
 
     'Fe+2': {
         'Name': 'iron (II)',
@@ -675,10 +685,9 @@ CHEMICAL_DB = {
         'Free-energy of formation (kJ/mol)': {'eQ pH=0': -82.1, 'eQ pH=7.5': -82.1, 'Kleerebezem': -78.9},
         'Molar mass (g/mol)': 55.845,
     },
-
+    
     'iron (ii)': 'Fe+2',
     'ferrous iron': 'Fe+2',
-
 
     'Fe+3': {
         'Name': 'iron (III)',

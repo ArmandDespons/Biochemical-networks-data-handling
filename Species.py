@@ -282,8 +282,8 @@ class Species:
         
         elif self.name=='biomass': 
 
-            A = 115 # kJ/Cmol 
-            q_c = A*(4*self.stoich.get('C', 0) + self.stoich.get('H', 0) - 2*self.stoich.get('O', 0) )
+            A = 120 # kJ/Cmol 
+            q_c = A * ( 4 * self.stoich.get('C', 0) + self.stoich.get('H', 0) - 2 * self.stoich.get('O', 0) )
 
             # a_O2 = 1 + biomass_stoich['H']/4 - biomass_stoich['O']/2
             # a_N2 = biomass_stoich['N'] 
