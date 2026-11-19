@@ -148,28 +148,24 @@ class Equation:
             for item in items:
                 if not item: continue
 
-                # Regex strng parsing:
-                # ^([\d\.]+)?    -> Optional leading coefficient
-                # \s* -> Optional space
-                # (              -> Start Formula Group
-                #  [A-Za-z0-9\.]+ -> Elements, numbers, and decimals (CH1.8O.5)
-                #  (?:[+-]\d*)?  -> Optional charge at the very end (+1, -, +)
-                # )
-                match = re.match(r'^([\d\.]+)?\s*([A-Za-z0-9\.]+(?:[+-]\d*)?)$', item)
+                # Regex string parsing:
+                # ^(\d+(?:\.\d*)?|\.\d+)?  -> Optional leading coefficient (2, 1.5, .5)
+                # \s*                       -> Optional space
+                # (\S.*)$                   -> The formula, handed as-is to Species, which parses
+                #                              groups (Fe(OH)3), charges (Fe(C6H5O7)2-3) and
+                #                              trailing labels ('C6H12O6 (galactose)')
+                match = re.match(r'^(\d+(?:\.\d*)?|\.\d+)?\s*(\S.*)$', item)
 
-                if match:
-                    coeff_str = match.group(1)
-                    formula = match.group(2)
+                if match is None:
+                    raise ValueError(f"Could not parse species '{item}' in equation.")
 
-                    obj = Species(formula)
-                    species_list.append(obj)
+                coeff_str, formula = match.groups()
 
-                    if coeff_str:
-                        known_coeffs[formula] = float(coeff_str)
-                else:
-                    # Fallback for single ions like "H+" if the regex is too strictDict[Union[str, Species]
-                    obj = Species(item)
-                    species_list.append(obj)
+                obj = Species(formula)
+                species_list.append(obj)
+
+                if coeff_str:
+                    known_coeffs[formula] = float(coeff_str)
 
             return species_list, known_coeffs
 

@@ -85,7 +85,12 @@ class Species:
             self._phase = None
             self._aliases = []
 
-            self._infer_from_formula()
+            try:
+                self._infer_from_formula()
+            except ValueError:
+                # Don't leave a half-initialized instance in the registry.
+                type(self)._REGISTRY.pop(self.formula, None)
+                raise
 
             self.name = name
 
@@ -134,23 +139,125 @@ class Species:
             
 
 
-    def _infer_from_formula(self):
-        """Parses formula and charge from the string."""
+    # ---- Formula parsing ----
 
-        working_formula = self.formula
-        charge_match = re.search(r'([+-]\d*)$', working_formula)
+    # Trailing human-readable label, e.g. 'C6H12O6 (galactose)' -> 'C6H12O6'.
+    # The whitespace before '(' is what distinguishes it from a chemical group.
+    _LABEL_RE = re.compile(r'\s+\(.*\)\s*$')
+    # Charge suffix: '+', '-', '+2', '-3', or repeated signs ('++', '---').
+    _CHARGE_RE = re.compile(r'(\++|-+)(\d*)$')
+    # Element symbol with optional (possibly decimal) count: 'Fe', 'H2', 'H1.8', 'O.5'.
+    _ELEMENT_RE = re.compile(r'([A-Z][a-z]*)(\d+(?:\.\d*)?|\.\d+)?')
+    _NUMBER_RE = re.compile(r'\d+(?:\.\d*)?|\.\d+')
+    _HYDRATE_SEP_RE = re.compile(r'[·•*]')
+    _BRACKETS = {'(': ')', '[': ']', '{': '}'}
+
+
+    @classmethod
+    def _parse_formula(cls, formula: str):
+        """Parse a chemical formula into (stoichiometry, charge).
+
+        Supported syntax:
+            - elements with integer or decimal counts: 'C6H12O6', 'CH1.8O.5N0.2'
+            - nested groups with multipliers, using (), [] or {}: 'Fe(OH)3',
+              'Fe(C6H5O7)2-3', 'K4[Fe(CN)6]'
+            - hydrates separated by '·', '•' or '*': 'CuSO4·5H2O'
+            - charge suffix: '+', '-', '+2', '-3', '++', '---'
+            - a trailing label separated by whitespace: 'C6H12O6 (galactose)'
+
+        A formula without any uppercase letter (e.g. 'biomass', 'e-') is kept as a
+        single pseudo-element, as before. Malformed formulas raise ValueError.
+        """
+
+        working = cls._LABEL_RE.sub('', formula)
+
+        charge = 0
+        charge_match = cls._CHARGE_RE.search(working)
         if charge_match:
-            raw_charge = charge_match.group(1)
-            self.charge = 1 if raw_charge == '+' else -1 if raw_charge == '-' else int(raw_charge)
-            working_formula = working_formula[:charge_match.start()]
+            signs, digits = charge_match.groups()
+            if len(signs) > 1 and digits:
+                raise ValueError(f"Ambiguous charge '{signs}{digits}' in formula '{formula}'.")
+            magnitude = int(digits) if digits else len(signs)
+            charge = magnitude if signs[0] == '+' else -magnitude
+            working = working[:charge_match.start()]
 
-        elements = re.findall(r'([A-Z][a-z]*)(\d*\.?\d*)', working_formula)
-        if not elements and working_formula:
-            self.stoichiometry[working_formula] = 1.0
-        else:
-            for symbol, count in elements:
-                val = float(count) if (count and count.strip()) else 1.0
-                self.stoichiometry[symbol] = self.stoichiometry.get(symbol, 0.0) + val
+        if not working:
+            return {}, charge
+
+        if not any(c.isupper() for c in working):
+            # Not a chemical formula: keep it as a single pseudo-element.
+            return {working: 1.0}, charge
+
+        stoichiometry: Dict[str, float] = {}
+        for i, part in enumerate(cls._HYDRATE_SEP_RE.split(working)):
+            multiplier = 1.0
+            if i > 0:
+                # Hydrate parts may carry a leading multiplier: '·5H2O'.
+                num = cls._NUMBER_RE.match(part)
+                if num:
+                    multiplier = float(num.group())
+                    part = part[num.end():]
+            if not part:
+                raise ValueError(f"Empty component in formula '{formula}'.")
+
+            counts, _ = cls._parse_group(part, 0, None, formula)
+            for el, n in counts.items():
+                stoichiometry[el] = stoichiometry.get(el, 0.0) + n * multiplier
+
+        return stoichiometry, charge
+
+
+    @classmethod
+    def _parse_group(cls, s: str, pos: int, closer: Optional[str], formula: str):
+        """Recursively parse `s` from `pos` until `closer` (or end of string if None).
+
+        Returns (counts, position just after the closing bracket). Counts keep the
+        order in which elements first appear.
+        """
+
+        counts: Dict[str, float] = {}
+
+        while pos < len(s):
+            c = s[pos]
+
+            if c.isupper():
+                m = cls._ELEMENT_RE.match(s, pos)
+                symbol, num = m.groups()
+                counts[symbol] = counts.get(symbol, 0.0) + (float(num) if num else 1.0)
+                pos = m.end()
+
+            elif c in cls._BRACKETS:
+                sub, pos = cls._parse_group(s, pos + 1, cls._BRACKETS[c], formula)
+                if not sub:
+                    raise ValueError(f"Empty group '{c}{cls._BRACKETS[c]}' in formula '{formula}'.")
+                num = cls._NUMBER_RE.match(s, pos)
+                multiplier = 1.0
+                if num:
+                    multiplier = float(num.group())
+                    pos = num.end()
+                for el, n in sub.items():
+                    counts[el] = counts.get(el, 0.0) + n * multiplier
+
+            elif c in cls._BRACKETS.values():
+                if c != closer:
+                    raise ValueError(f"Unmatched '{c}' at position {pos} in formula '{formula}'.")
+                return counts, pos + 1
+
+            else:
+                raise ValueError(f"Unexpected character '{c}' at position {pos} in formula '{formula}'.")
+
+        if closer is not None:
+            raise ValueError(f"Missing '{closer}' in formula '{formula}'.")
+
+        return counts, pos
+
+
+    def _infer_from_formula(self):
+        """Parses stoichiometry and charge from the formula string."""
+
+        stoichiometry, charge = self._parse_formula(self.formula)
+        self.stoichiometry.update(stoichiometry)
+        self.charge = charge
 
 
     @property
