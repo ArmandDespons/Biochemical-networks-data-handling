@@ -52,6 +52,11 @@ class Species:
     def __init__(self, formula: Optional[str] = None, name: Optional[str] = None):
 
         if self._initialized:
+            # The registry hands back the cached instance, so an explicitly passed
+            # name must still be applied to user-defined (non-DB) species.
+            if name is not None and not self._in_db:
+                self.name = name
+                self.alias = name
             return
 
         self.formula = self._resolve_formula(formula, name)
@@ -389,7 +394,7 @@ class Species:
         
         elif self.name=='biomass': 
 
-            A = 120 # kJ/Cmol 
+            A = 115 # kJ/Cmol 
             q_c = A * ( 4 * self.stoich.get('C', 0) + self.stoich.get('H', 0) - 2 * self.stoich.get('O', 0) )
 
             # a_O2 = 1 + biomass_stoich['H']/4 - biomass_stoich['O']/2

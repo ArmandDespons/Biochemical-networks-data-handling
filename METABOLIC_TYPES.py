@@ -194,6 +194,7 @@ METABOLIC_TYPES = {
 
     "ethanol sulfate respiration": {
         "ox": {"C2H6O": -1, "H2O": -5, "CHO3-1": 2, "H+1": 14, "e-": 12},
+        "ox II": {"C2H6O": -1, "H2O": -1, "C2H3O2-1": 1, "H+1": 5, "e-": 4},
         "red": {"SO4-2": -1, "H+1": -9, "e-": -8, "HS-1": 1, "H2O": 4}
     },
 
@@ -202,35 +203,21 @@ METABOLIC_TYPES = {
         "red": {"S": -1, "H+1": -1, "e-": -2, "HS-1": 1}
     },
 
+# ------- MIXOTROPHIC SULFATE RESPIRATION ------
+
+    "mixotrophic acetate sulfate respiration": {
+        "red": {"SO4-2": -1, "H+1": -9, "e-": -8, "HS-1": 1, "H2O": 4},
+        "ox": {"H2": -1, "H+1": 2, "e-": 2},
+    },
+
+# ------------ IRON RESPIRATION ------------
+
+    "lactate ferric respiration": {
+        "ox": {"C3H5O3-1": -1, "H2O": -2, "C2H3O2-1": 1, "CHO3-1": 1, "H+1": 5, "e-": 4},
+        "red": {"Fe+3": -1, "e-": -1, "Fe+2": 1}
+    },
+    
 # ------------ GLUCOSE FERMENTATION ------------
-
-    # "glucose fermentation (I)": {
-
-    #     "ox": {"C6H12O6": -1, "C3H3O3-1": 2, "H+1": 6, "e-": 4},
-
-    #     "red": {
-
-    #         "C2H3O2-1": {"C3H3O3-1": -1, "H2O": -1, "CHO2-1": 1, "C2H3O2-1": 1, "H+1": 1},
-    #         "C2H6O": {"C3H3O3-1": -1, "H2O": -1, "H+1": -2, "e-": -2, "C2H6O": 1, "CHO3-1": 1},
-    #         "C3H5O3-1": {"C3H3O3-1": -1, "H+1": -2, "e-": -2, "C3H5O3-1": 1},
-    #         "C3H8O3": {"C3H3O3-1": -1, "H+1": -5, "e-": -4, "C3H8O3": 1},
-    #         "C4H4O4-2": {"C3H3O3-1": -1, "CHO3-1": -1, "H+1": -4, "e-": -4, "C4H4O4-2": 1, "H2O": 2}
-    #     }
-    # },
-
-    # "glucose fermentation (II)": {
-
-    #     "ox": {"C6H12O6": -1, "C21H32N7O16P3S": -2, "H2O": -2, "C23H34N7O17P3S": 2, "CHO3-1": 2, "H+1": 10, "e-": 8},
-
-    #     "red": {
-    #         "C2H3O2-1": {"C23H34N7O17P3S": -1, "H2O": -1, "C2H3O2-1": 1, "H+1": 1, "C21H32N7O16P3S": 1},
-    #         "C4H7O2-1": {"C23H34N7O17P3S": -1, "H+1": -1.5, "e-": -2, "C4H7O2-1": .5, "C21H32N7O16P3S": 1},
-    #         "H2": {"H+1": -1, "e-": -1, "H2": .5},
-    #         "C4H10O": {"C23H34N7O17P3S": -1, "H+1": -4, "e-": -4, "C4H10O": .5, "H2O": .5, "C21H32N7O16P3S": 1},
-    #         "C2H6O": {"C23H34N7O17P3S": -1, "H+1": -4, "e-": -4, "C2H6O": 1, "C21H32N7O16P3S": 1}
-    #     }
-    # },
-
 
     "glucose fermentation": {
 
@@ -255,7 +242,6 @@ METABOLIC_TYPES = {
             "C2H6O": {"C23H34N7O17P3S": -1, "H+1": -4, "e-": -4, "C2H6O": 1, "C21H32N7O16P3S": 1}
         }
     },
-
 
 #------------ OVERFLOW PATHWAYS ------------
 

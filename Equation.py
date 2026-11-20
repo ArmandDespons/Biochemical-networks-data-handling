@@ -76,7 +76,7 @@ class Equation:
         self._overriden_complexes = False
         self._last_independent_set = set()
 
-        self.pH = 7
+        self.pH = 7.4
         self.T = 298.15
         self.activity = None
 

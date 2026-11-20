@@ -110,6 +110,20 @@ class Complex:
         return s
 
 
+    def copy(self) -> "Complex":
+        """Return a new Complex with the same species and coefficients.
+
+        The species list and coefficient dicts are copied, so modifying the copy (e.g. `pop`, `_update`)
+        leaves the original untouched; the Species instances themselves are shared.
+        """
+
+        new = Complex(list(self.species), default_coeff=self._default)
+        new._known_coefficients = dict(self._known_coefficients)
+        new._default_coefficients = dict(self._default_coefficients)
+
+        return new
+
+
     @property
     def coefficients(self) -> Dict[str, float]:
         """Combines default and user-defined coefficients for every species in the complex."""

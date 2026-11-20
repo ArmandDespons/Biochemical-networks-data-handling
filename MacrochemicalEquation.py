@@ -200,7 +200,7 @@ class MacrochemEquation(Equation):
             pH_cols = [col for col in df.columns if 'ph' in col.lower()]
             if pH_cols:
                 pH_value = df.loc[index, pH_cols[0]]
-                eq.pH = 7 if _missing(pH_value) else pH_value
+                eq.pH = 7.4 if _missing(pH_value) else pH_value
 
             return eq
 
